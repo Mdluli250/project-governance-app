@@ -1,0 +1,652 @@
+"use client"
+
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react"
+import type {
+  User,
+  Project,
+  POCReview,
+  Action,
+  KDADecision,
+  AuditEntry,
+  RiskIssue,
+  POCSession,
+  AuditType,
+} from "./types"
+import { loadUsers, createUser as createUserDb, updateUserDb, deleteUserDb } from "./users-db"
+
+import {
+  CLASSIFICATION_THRESHOLDS as INITIAL_CLASSIFICATION_THRESHOLDS,
+  POC_CADENCE as INITIAL_POC_CADENCE,
+} from "./constants"
+import {
+  loadAllConfig,
+  saveClusters,
+  saveStrategicObjectives,
+  saveChecklistTemplate,
+  saveActionCategories,
+} from "./config-db"
+import { loadAllData, persistEntity } from "./data-db"
+
+// ── Config types ───────────────────────────────────────────
+export interface StrategicObjective {
+  id: string
+  label: string
+  description: string
+}
+
+export interface ChecklistSection {
+  section: string
+  items: string[]
+}
+
+export interface ActionCategoryItem {
+  value: string
+  label: string
+}
+
+export interface ClassificationThreshold {
+  contractValue: number
+  riskComplexity: string
+  reputationalRisk: string
+}
+
+export interface POCCadenceItem {
+  label: string
+  frequency: string
+  quarters: number[]
+}
+
+// ── Auth Context ───────────────────────────────────────────
+interface AuthContextType {
+  currentUser: User
+  setCurrentUser: (user: User) => void
+  isAuthenticated: boolean
+  mustChangePassword: boolean
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
+  logout: () => void
+  changePassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>
+  resetPassword: (userId: string) => Promise<{ success: boolean; error?: string }>
+  users: User[]
+  usersLoaded: boolean
+  addUser: (user: Omit<User, "id">) => Promise<User | null>
+  updateUser: (id: string, updates: Partial<User>) => void
+  deleteUser: (id: string) => void
+}
+
+const AuthContext = createContext<AuthContextType | null>(null)
+
+export function useAuth() {
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider")
+  return ctx
+}
+
+const EMPTY_USER: User = { id: "", name: "", email: "", role: "PM" }
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [users, setUsers] = useState<User[]>([])
+  const [currentUser, setCurrentUser] = useState<User>(EMPTY_USER)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [mustChangePassword, setMustChangePassword] = useState(false)
+  const [usersLoaded, setUsersLoaded] = useState(false)
+  const loadDone = useRef(false)
+
+  // Restore session from localStorage on mount
+  // NOTE: Do NOT set mustChangePassword here -- only set it during active login.
+  // If the user already has a session, they already passed the change-password gate.
+  useEffect(() => {
+    const stored = localStorage.getItem("gov_session")
+    if (stored) {
+      try {
+        const user = JSON.parse(stored) as User
+        setCurrentUser(user)
+        setIsAuthenticated(true)
+      } catch {
+        localStorage.removeItem("gov_session")
+      }
+    }
+  }, [])
+
+  // Load users from Supabase on mount, with a timeout fallback
+  useEffect(() => {
+    if (loadDone.current) return
+    loadDone.current = true
+
+    // Ensure usersLoaded is set even if the fetch hangs
+    const timeout = setTimeout(() => {
+      setUsersLoaded((prev) => {
+        if (!prev) console.warn("User load timed out, enabling login with seed users")
+        return true
+      })
+    }, 5000)
+
+    loadUsers()
+      .then((dbUsers) => {
+        clearTimeout(timeout)
+        console.log("[v0] Users loaded from API:", dbUsers.length, "users")
+        setUsers(dbUsers)
+        // Keep current user in sync with DB version (including passwordChanged flag)
+        setCurrentUser((prev) => {
+          if (!prev.id) return prev
+          const match = dbUsers.find((u) => u.id === prev.id)
+          if (match) {
+            localStorage.setItem("gov_session", JSON.stringify(match))
+            return match
+          }
+          return prev
+        })
+        setUsersLoaded(true)
+      })
+      .catch((err) => {
+        clearTimeout(timeout)
+        console.error("[v0] Failed to load users from Supabase:", err)
+        setUsersLoaded(true)
+      })
+  }, [])
+
+  const DEFAULT_PASSWORD = "12345678"
+
+  // Passwords stored in memory per user id (maps id -> password)
+  // Users who haven't changed their password use the default
+  const passwordMapRef = useRef<Record<string, string>>({})
+
+  // Track users whose passwords were explicitly reset by admin in this session
+  const adminResetUsersRef = useRef<Set<string>>(new Set())
+
+  const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    if (!email || !password) {
+      return { success: false, error: "Email and password are required." }
+    }
+    console.log("[v0] Login attempt:", { email, usersLoaded, usersCount: users.length, userEmails: users.map(u => u.email) })
+    const match = users.find((u) => u.email.toLowerCase() === email.toLowerCase().trim())
+    if (!match) {
+      console.log("[v0] No user found with email:", email)
+      return { success: false, error: "Invalid email or password." }
+    }
+    console.log("[v0] User found:", match.id, "passwordChanged:", match.passwordChanged)
+    // Check password: use stored password if user has changed it, otherwise use default
+    const storedPassword = passwordMapRef.current[match.id]
+    const expectedPassword = match.passwordChanged ? (storedPassword ?? DEFAULT_PASSWORD) : DEFAULT_PASSWORD
+    console.log("[v0] Checking password - entered:", password.substring(0, 2) + "...", "expected:", expectedPassword.substring(0, 2) + "...", "match:", password === expectedPassword)
+    if (password !== expectedPassword) {
+      return { success: false, error: "Invalid email or password." }
+    }
+    setCurrentUser(match)
+    setIsAuthenticated(true)
+    // Only force password change if an admin explicitly reset this user's password
+    const wasAdminReset = adminResetUsersRef.current.has(match.id)
+    setMustChangePassword(wasAdminReset)
+    if (wasAdminReset) adminResetUsersRef.current.delete(match.id)
+    localStorage.setItem("gov_session", JSON.stringify(match))
+    return { success: true }
+  }, [users])
+
+  const changePassword = useCallback(async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    if (newPassword.length < 8) {
+      return { success: false, error: "Password must be at least 8 characters." }
+    }
+    if (newPassword === DEFAULT_PASSWORD) {
+      return { success: false, error: "New password cannot be the same as the default password." }
+    }
+    try {
+      const res = await fetch("/api/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: currentUser.id, newPassword }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        return { success: false, error: data.error || "Failed to change password." }
+      }
+      // Store new password locally and update user state
+      passwordMapRef.current[currentUser.id] = newPassword
+      const updatedUser = { ...currentUser, passwordChanged: true }
+      setCurrentUser(updatedUser)
+      setUsers((prev) => prev.map((u) => u.id === currentUser.id ? { ...u, passwordChanged: true } : u))
+      setMustChangePassword(false)
+      localStorage.setItem("gov_session", JSON.stringify(updatedUser))
+      return { success: true }
+    } catch {
+      return { success: false, error: "Network error. Please try again." }
+    }
+  }, [currentUser])
+
+  const resetPassword = useCallback(async (userId: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch("/api/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: userId, resetToDefault: true }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        return { success: false, error: data.error || "Failed to reset password." }
+      }
+      // Clear stored password and track that this user was admin-reset
+      delete passwordMapRef.current[userId]
+      adminResetUsersRef.current.add(userId)
+      setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, passwordChanged: false } : u))
+      return { success: true }
+    } catch {
+      return { success: false, error: "Network error. Please try again." }
+    }
+  }, [])
+
+  const logout = useCallback(() => {
+    setCurrentUser(EMPTY_USER)
+    setIsAuthenticated(false)
+    setMustChangePassword(false)
+    localStorage.removeItem("gov_session")
+  }, [])
+
+  const addUser = useCallback(async (user: Omit<User, "id">): Promise<User | null> => {
+    try {
+      const created = await createUserDb(user)
+      setUsers((prev) => [...prev, created])
+      return created
+    } catch (err) {
+      console.error("Failed to persist user:", err)
+      // Fallback: still add locally
+      const fallback: User = { ...user, id: `local-${Date.now()}` }
+      setUsers((prev) => [...prev, fallback])
+      return fallback
+    }
+  }, [])
+
+  const updateUser = useCallback((id: string, updates: Partial<User>) => {
+    setUsers((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, ...updates } : u))
+    )
+    // Also keep currentUser in sync
+    setCurrentUser((prev) =>
+      prev.id === id ? { ...prev, ...updates } : prev
+    )
+    updateUserDb(id, updates).catch((err) =>
+      console.error("Failed to persist user update:", err)
+    )
+  }, [])
+
+  const deleteUser = useCallback((id: string) => {
+    setUsers((prev) => prev.filter((u) => u.id !== id))
+    deleteUserDb(id).catch((err) =>
+      console.error("Failed to persist user delete:", err)
+    )
+  }, [])
+
+  return (
+    <AuthContext.Provider value={{ currentUser, setCurrentUser, isAuthenticated, mustChangePassword, login, logout, changePassword, resetPassword, users, usersLoaded, addUser, updateUser, deleteUser }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+// ── Data Context ───────────────────────────────────────────
+interface DataContextType {
+  projects: Project[]
+  reviews: POCReview[]
+  actions: Action[]
+  kdaDecisions: KDADecision[]
+  auditLog: AuditEntry[]
+  risks: RiskIssue[]
+  sessions: POCSession[]
+  dataLoaded: boolean
+  // Config state
+  clusters: string[]
+  impactAreas: Record<string, string[]>
+  strategicObjectives: StrategicObjective[]
+  checklistTemplate: ChecklistSection[]
+  actionCategories: ActionCategoryItem[]
+  classificationThresholds: Record<string, ClassificationThreshold>
+  pocCadence: Record<string, POCCadenceItem>
+  configLoaded: boolean
+  updateProject: (id: string, updates: Partial<Project>) => void
+  addProject: (project: Project) => void
+  addAction: (action: Action) => void
+  updateAction: (id: string, updates: Partial<Action>) => void
+  addReview: (review: POCReview) => void
+  updateReview: (id: string, updates: Partial<POCReview>) => void
+  addKDADecision: (decision: KDADecision) => void
+  addRisk: (risk: RiskIssue) => void
+  updateRisk: (id: string, updates: Partial<RiskIssue>) => void
+  addSession: (session: POCSession) => void
+  updateSession: (id: string, updates: Partial<POCSession>) => void
+  addAuditEntry: (entry: Omit<AuditEntry, "id" | "timestamp">) => void
+  getProjectById: (id: string) => Project | undefined
+  getReviewsForProject: (projectId: string) => POCReview[]
+  getActionsForProject: (projectId: string) => Action[]
+  getKDAForProject: (projectId: string) => KDADecision[]
+  getAuditForProject: (projectId: string) => AuditEntry[]
+  getRisksForProject: (projectId: string) => RiskIssue[]
+  // Config mutators
+  setClusters: (clusters: string[]) => void
+  setImpactAreas: (areas: Record<string, string[]>) => void
+  setStrategicObjectives: (objectives: StrategicObjective[]) => void
+  setChecklistTemplate: (template: ChecklistSection[]) => void
+  setActionCategories: (categories: ActionCategoryItem[]) => void
+  setClassificationThresholds: (thresholds: Record<string, ClassificationThreshold>) => void
+  setPocCadence: (cadence: Record<string, POCCadenceItem>) => void
+}
+
+const DataContext = createContext<DataContextType | null>(null)
+
+export function useData() {
+  const ctx = useContext(DataContext)
+  if (!ctx) throw new Error("useData must be used within DataProvider")
+  return ctx
+}
+
+let _auditId = 100
+
+export function DataProvider({ children }: { children: ReactNode }) {
+  const [projects, setProjects] = useState<Project[]>([])
+  const [reviews, setReviews] = useState<POCReview[]>([])
+  const [actions, setActions] = useState<Action[]>([])
+  const [kdaDecisions, setKDADecisions] = useState<KDADecision[]>([])
+  const [auditLog, setAuditLog] = useState<AuditEntry[]>([])
+  const [risks, setRisks] = useState<RiskIssue[]>([])
+  const [sessions, setSessions] = useState<POCSession[]>([])
+  const [dataLoaded, setDataLoaded] = useState(false)
+  const dataLoadDone = useRef(false)
+
+  // ── Load all data from Supabase on mount (never auto-seed) ─
+  useEffect(() => {
+    if (dataLoadDone.current) return
+    dataLoadDone.current = true
+
+    async function init() {
+      try {
+        const allData = await loadAllData()
+        // Always use whatever Supabase returns -- no auto-seeding
+        setProjects(allData.projects as Project[])
+        setActions(allData.actions as Action[])
+        setReviews(allData.reviews as POCReview[])
+        setRisks(allData.risks as RiskIssue[])
+        setAuditLog(allData.auditLog as AuditEntry[])
+        if (allData.auditLog.length > 0) {
+          const maxId = Math.max(0, ...allData.auditLog.map((a) => {
+            const n = parseInt(String(a.id).replace(/\D/g, ""), 10)
+            return isNaN(n) ? 0 : n
+          }))
+          _auditId = maxId + 1
+        }
+        setKDADecisions(allData.kdaDecisions as KDADecision[])
+        setSessions(allData.sessions as POCSession[])
+      } catch (err) {
+        console.error("Failed to load data from Supabase, keeping initial state:", err)
+      } finally {
+        setDataLoaded(true)
+      }
+    }
+    init()
+  }, [])
+
+  // Config state -- always starts empty, loaded from Supabase only.
+  // No hardcoded seed data is used as initial state.
+  const [clusters, setClusters] = useState<string[]>([])
+  const [impactAreas, setImpactAreas] = useState<Record<string, string[]>>({})
+  const [strategicObjectives, setStrategicObjectives] = useState<StrategicObjective[]>([])
+  const [checklistTemplate, setChecklistTemplate] = useState<ChecklistSection[]>([])
+  const [actionCategories, setActionCategories] = useState<ActionCategoryItem[]>([])
+  const [classificationThresholds, setClassificationThresholds] = useState<Record<string, ClassificationThreshold>>(
+    JSON.parse(JSON.stringify(INITIAL_CLASSIFICATION_THRESHOLDS))
+  )
+  const [pocCadence, setPocCadence] = useState<Record<string, POCCadenceItem>>(
+    JSON.parse(JSON.stringify(INITIAL_POC_CADENCE))
+  )
+  const [configLoaded, setConfigLoaded] = useState(false)
+  const initialLoadDone = useRef(false)
+
+  // Refs to always have latest state for async saves
+  const clustersRef = useRef(clusters)
+  const impactAreasRef = useRef(impactAreas)
+  useEffect(() => { clustersRef.current = clusters }, [clusters])
+  useEffect(() => { impactAreasRef.current = impactAreas }, [impactAreas])
+
+  // ── Load config from Supabase on mount ───────────────────
+  useEffect(() => {
+    if (initialLoadDone.current) return
+    initialLoadDone.current = true
+    loadAllConfig()
+      .then((cfg) => {
+        // Always apply DB config -- no fallback to hardcoded constants
+        setClusters(cfg.clusters)
+        clustersRef.current = cfg.clusters
+        setImpactAreas(cfg.impactAreas)
+        impactAreasRef.current = cfg.impactAreas
+        setStrategicObjectives(cfg.strategicObjectives)
+        setChecklistTemplate(cfg.checklistTemplate)
+        setActionCategories(cfg.actionCategories)
+        setConfigLoaded(true)
+      })
+      .catch((err) => {
+        console.error("Failed to load config from Supabase:", err)
+        // IMPORTANT: Do NOT set configLoaded = true on failure.
+        // This keeps the persist guards locked, preventing empty state
+        // from overwriting real data in the database.
+      })
+  }, [])
+
+  // Debounced cluster save to handle rapid setClusters + setImpactAreas calls
+  const clusterSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const configLoadedRef = useRef(false)
+  useEffect(() => { configLoadedRef.current = configLoaded }, [configLoaded])
+
+  function scheduleClusterSave() {
+    if (!configLoadedRef.current) return // Never save before config is loaded from DB
+    if (clusterSaveTimer.current) clearTimeout(clusterSaveTimer.current)
+    clusterSaveTimer.current = setTimeout(() => {
+      saveClusters(clustersRef.current, impactAreasRef.current).catch((err) =>
+        console.error("Failed to save clusters:", err)
+      )
+    }, 100)
+  }
+
+  // ── Persisting wrappers ─────────────────────────────────
+  // IMPORTANT: These only save to DB AFTER config has been loaded from Supabase.
+  // This prevents empty initial state from overwriting real DB data.
+  const persistClusters = useCallback(
+    (newClusters: string[]) => {
+      setClusters(newClusters)
+      clustersRef.current = newClusters
+      scheduleClusterSave()
+    },
+    []
+  )
+
+  const persistImpactAreas = useCallback(
+    (newAreas: Record<string, string[]>) => {
+      setImpactAreas(newAreas)
+      impactAreasRef.current = newAreas
+      scheduleClusterSave()
+    },
+    []
+  )
+
+  const persistStrategicObjectives = useCallback(
+    (newObjectives: StrategicObjective[]) => {
+      setStrategicObjectives(newObjectives)
+      if (!configLoadedRef.current) return // Guard: don't overwrite DB before load
+      saveStrategicObjectives(newObjectives).catch((err) =>
+        console.error("Failed to save strategic objectives:", err)
+      )
+    },
+    []
+  )
+
+  const persistChecklistTemplate = useCallback(
+    (newTemplate: ChecklistSection[]) => {
+      setChecklistTemplate(newTemplate)
+      if (!configLoadedRef.current) return
+      saveChecklistTemplate(newTemplate).catch((err) =>
+        console.error("Failed to save checklist template:", err)
+      )
+    },
+    []
+  )
+
+  const persistActionCategories = useCallback(
+    (newCategories: ActionCategoryItem[]) => {
+      setActionCategories(newCategories)
+      if (!configLoadedRef.current) return
+      saveActionCategories(newCategories).catch((err) =>
+        console.error("Failed to save action categories:", err)
+      )
+    },
+    []
+  )
+
+  const addAuditEntry = useCallback(
+    (entry: Omit<AuditEntry, "id" | "timestamp">) => {
+      const newEntry: AuditEntry = {
+        ...entry,
+        id: `au${++_auditId}`,
+        timestamp: new Date().toISOString(),
+      }
+      setAuditLog((prev) => [newEntry, ...prev])
+      persistEntity("audit", "insert", newEntry as unknown as Record<string, unknown>)
+    },
+    []
+  )
+
+  const updateProject = useCallback(
+    (id: string, updates: Partial<Project>) => {
+      const lastUpdated = new Date().toISOString().split("T")[0]
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, ...updates, lastUpdated } : p
+        )
+      )
+      persistEntity("project", "upsert", { id, ...updates, lastUpdated } as unknown as Record<string, unknown>)
+    },
+    []
+  )
+
+  const addProject = useCallback((project: Project) => {
+    setProjects((prev) => [...prev, project])
+    persistEntity("project", "upsert", project as unknown as Record<string, unknown>)
+  }, [])
+
+  const addAction = useCallback((action: Action) => {
+    setActions((prev) => [...prev, action])
+    persistEntity("action", "insert", action as unknown as Record<string, unknown>)
+  }, [])
+
+  const updateAction = useCallback((id: string, updates: Partial<Action>) => {
+    setActions((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)))
+    persistEntity("action", "update", { id, ...updates } as unknown as Record<string, unknown>)
+  }, [])
+
+  const addReview = useCallback((review: POCReview) => {
+    setReviews((prev) => [...prev, review])
+    persistEntity("review", "insert", review as unknown as Record<string, unknown>)
+  }, [])
+
+  const updateReview = useCallback((id: string, updates: Partial<POCReview>) => {
+    setReviews((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)))
+    persistEntity("review", "update", { id, ...updates } as unknown as Record<string, unknown>)
+  }, [])
+
+  const addKDADecision = useCallback((decision: KDADecision) => {
+    setKDADecisions((prev) => [...prev, decision])
+    persistEntity("kda", "insert", decision as unknown as Record<string, unknown>)
+  }, [])
+
+  const addRisk = useCallback((risk: RiskIssue) => {
+    setRisks((prev) => [...prev, risk])
+    persistEntity("risk", "insert", risk as unknown as Record<string, unknown>)
+  }, [])
+
+  const updateRisk = useCallback((id: string, updates: Partial<RiskIssue>) => {
+    setRisks((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)))
+    persistEntity("risk", "update", { id, ...updates } as unknown as Record<string, unknown>)
+  }, [])
+
+  const addSession = useCallback((session: POCSession) => {
+    setSessions((prev) => [...prev, session])
+    persistEntity("session", "insert", session as unknown as Record<string, unknown>)
+  }, [])
+
+  const updateSession = useCallback((id: string, updates: Partial<POCSession>) => {
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)))
+    persistEntity("session", "update", { id, ...updates } as unknown as Record<string, unknown>)
+  }, [])
+
+  const getProjectById = useCallback(
+    (id: string) => projects.find((p) => p.id === id),
+    [projects]
+  )
+  const getReviewsForProject = useCallback(
+    (projectId: string) =>
+      reviews.filter((r) => r.projectId === projectId).sort((a, b) => b.reviewDate.localeCompare(a.reviewDate)),
+    [reviews]
+  )
+  const getActionsForProject = useCallback(
+    (projectId: string) => actions.filter((a) => a.projectId === projectId),
+    [actions]
+  )
+  const getKDAForProject = useCallback(
+    (projectId: string) => kdaDecisions.filter((k) => k.projectId === projectId),
+    [kdaDecisions]
+  )
+  const getAuditForProject = useCallback(
+    (projectId: string) =>
+      auditLog
+        .filter((a) => a.projectId === projectId)
+        .sort((a, b) => b.timestamp.localeCompare(a.timestamp)),
+    [auditLog]
+  )
+  const getRisksForProject = useCallback(
+    (projectId: string) => risks.filter((r) => r.projectId === projectId),
+    [risks]
+  )
+
+  return (
+    <DataContext.Provider
+      value={{
+        projects,
+        reviews,
+        actions,
+        kdaDecisions,
+        auditLog,
+        risks,
+        sessions,
+        dataLoaded,
+        clusters,
+        impactAreas,
+        strategicObjectives,
+        checklistTemplate,
+        actionCategories,
+        classificationThresholds,
+        pocCadence,
+        configLoaded,
+        updateProject,
+        addProject,
+        addAction,
+        updateAction,
+        addReview,
+        updateReview,
+        addKDADecision,
+        addRisk,
+        updateRisk,
+        addSession,
+        updateSession,
+        addAuditEntry,
+        getProjectById,
+        getReviewsForProject,
+        getActionsForProject,
+        getKDAForProject,
+        getAuditForProject,
+        getRisksForProject,
+        setClusters: persistClusters,
+        setImpactAreas: persistImpactAreas,
+        setStrategicObjectives: persistStrategicObjectives,
+        setChecklistTemplate: persistChecklistTemplate,
+        setActionCategories: persistActionCategories,
+        setClassificationThresholds,
+        setPocCadence,
+      }}
+    >
+      {children}
+    </DataContext.Provider>
+  )
+}
