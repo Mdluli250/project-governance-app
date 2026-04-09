@@ -1,4 +1,5 @@
 import { query } from "@/lib/db";
+import { comparePassword } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
@@ -12,13 +13,13 @@ export async function POST(req: Request) {
       );
     }
 
-    // Direct PostgreSQL query with pgcrypto password verification
+    // Query user with password hash
     const result = await query(
-      `SELECT id, name, email, role, cluster, impact_area
+      `SELECT id, name, email, role, cluster, impact_area, password_hash
        FROM users
-       WHERE email = $1 AND password_hash = crypt($2, password_hash)
+       WHERE email = $1
        LIMIT 1`,
-      [email.toLowerCase().trim(), password],
+      [email.toLowerCase().trim()],
     );
 
     if (!result.rows || result.rows.length === 0) {
@@ -29,6 +30,17 @@ export async function POST(req: Request) {
     }
 
     const row = result.rows[0];
+    
+    // Verify password with bcrypt
+    const isValid = await comparePassword(password, row.password_hash);
+    
+    if (!isValid) {
+      return NextResponse.json(
+        { error: "Invalid email or password." },
+        { status: 401 },
+      );
+    }
+
     const user = {
       id: row.id,
       name: row.name,
