@@ -31,8 +31,13 @@ export async function POST(req: Request) {
 
     const row = result.rows[0];
     
+    console.log(`Login attempt: ${email}`);
+    console.log(`Password hash exists: ${!!row.password_hash}`);
+    
     // Verify password with bcrypt
     const isValid = await comparePassword(password, row.password_hash);
+    
+    console.log(`Password valid: ${isValid}`);
     
     if (!isValid) {
       return NextResponse.json(
