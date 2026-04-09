@@ -196,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("[v0] Login error:", error)
       return { success: false, error: "Network error. Please try again." }
     }
-  }, []), [users])
+  }, [])
 
   const changePassword = useCallback(async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
     if (newPassword.length < 8) {
