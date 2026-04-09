@@ -153,33 +153,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Track users whose passwords were explicitly reset by admin in this session
   const adminResetUsersRef = useRef<Set<string>>(new Set())
 
-  const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     if (!email || !password) {
       return { success: false, error: "Email and password are required." }
     }
-    console.log("[v0] Login attempt:", { email, usersLoaded, usersCount: users.length, userEmails: users.map(u => u.email) })
-    const match = users.find((u) => u.email.toLowerCase() === email.toLowerCase().trim())
-    if (!match) {
-      console.log("[v0] No user found with email:", email)
-      return { success: false, error: "Invalid email or password." }
+    
+    try {
+      // Call the API endpoint instead of checking locally
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        return { success: false, error: data.error || "Invalid email or password." }
+      }
+
+      const data = await response.json()
+      
+      // If API returns user object, set it
+      if (data.user) {
+        const user: User = {
+          id: data.user.id,
+          name: data.user.name || "",
+          email: data.user.email,
+          role: data.user.role || "PM",
+          cluster: data.user.cluster,
+          impactArea: data.user.impactArea,
+        }
+        
+        setCurrentUser(user)
+        setIsAuthenticated(true)
+        setMustChangePassword(false)
+        localStorage.setItem("gov_session", JSON.stringify(user))
+        return { success: true }
+      }
+
+      return { success: false, error: "Login failed." }
+    } catch (error) {
+      console.error("[v0] Login error:", error)
+      return { success: false, error: "Network error. Please try again." }
     }
-    console.log("[v0] User found:", match.id, "passwordChanged:", match.passwordChanged)
-    // Check password: use stored password if user has changed it, otherwise use default
-    const storedPassword = passwordMapRef.current[match.id]
-    const expectedPassword = match.passwordChanged ? (storedPassword ?? DEFAULT_PASSWORD) : DEFAULT_PASSWORD
-    console.log("[v0] Checking password - entered:", password.substring(0, 2) + "...", "expected:", expectedPassword.substring(0, 2) + "...", "match:", password === expectedPassword)
-    if (password !== expectedPassword) {
-      return { success: false, error: "Invalid email or password." }
-    }
-    setCurrentUser(match)
-    setIsAuthenticated(true)
-    // Only force password change if an admin explicitly reset this user's password
-    const wasAdminReset = adminResetUsersRef.current.has(match.id)
-    setMustChangePassword(wasAdminReset)
-    if (wasAdminReset) adminResetUsersRef.current.delete(match.id)
-    localStorage.setItem("gov_session", JSON.stringify(match))
-    return { success: true }
-  }, [users])
+  }, []), [users])
 
   const changePassword = useCallback(async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
     if (newPassword.length < 8) {
@@ -650,3 +667,4 @@ export function DataProvider({ children }: { children: ReactNode }) {
     </DataContext.Provider>
   )
 }
+
