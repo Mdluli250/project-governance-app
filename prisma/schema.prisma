@@ -1,0 +1,228 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Profile {
+  id              String    @id
+  name            String
+  email           String    @unique
+  role            String
+  cluster         String?
+  impactArea      String?   @map("impact_area")
+  passwordChanged Boolean?  @default(false) @map("password_changed")
+  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  passwordHash    String?   @map("password_hash")
+  projects        Project[] @relation("ProjectPM")
+
+  @@map("profiles")
+}
+
+model Project {
+  id                  String           @id
+  shortTitle          String           @map("short_title")
+  longTitle           String           @map("long_title")
+  classification      String
+  cluster             String
+  impactArea          String           @map("impact_area")
+  pmId                String           @map("pm_id")
+  sponsorName         String           @map("sponsor_name")
+  strategicObjectives String[]         @default([]) @map("strategic_objectives")
+  contractValue       Decimal?         @default(0) @map("contract_value") @db.Decimal(15, 2)
+  contractTerm        Int?             @default(0) @map("contract_term")
+  startDate           DateTime?        @map("start_date") @db.Date
+  endDate             DateTime?        @map("end_date") @db.Date
+  thisYearAmount      Decimal?         @default(0) @map("this_year_amount") @db.Decimal(15, 2)
+  riskComplexity      String?          @map("risk_complexity")
+  reputationalRisk    String?          @map("reputational_risk")
+  ragOverall          String?          @default("GREEN") @map("rag_overall")
+  ragScope            String?          @default("GREEN") @map("rag_scope")
+  ragSchedule         String?          @default("GREEN") @map("rag_schedule")
+  ragCost             String?          @default("GREEN") @map("rag_cost")
+  ragQuality          String?          @default("GREEN") @map("rag_quality")
+  ragRisk             String?          @default("GREEN") @map("rag_risk")
+  ragSheq             String?          @default("GREEN") @map("rag_sheq")
+  ragData             String?          @default("GREEN") @map("rag_data")
+  ragCompliance       String?          @default("GREEN") @map("rag_compliance")
+  healthNarrative     String?          @default("") @map("health_narrative")
+  lastUpdated         DateTime?        @default(now()) @map("last_updated") @db.Timestamptz(6)
+  createdAt           DateTime?        @default(now()) @map("created_at") @db.Timestamptz(6)
+  actions             Action[]
+  auditLog            AuditLog[]
+  kdaDecisions        KdaDecision[]
+  reviews             PocReview[]
+  pm                  Profile          @relation("ProjectPM", fields: [pmId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  risks               Risk[]
+  sessionProjects     SessionProject[]
+
+  @@index([pmId], map: "idx_projects_pm_id")
+  @@map("projects")
+}
+
+model PocReview {
+  id                 String                    @id
+  projectId          String                    @map("project_id")
+  reviewDate         DateTime                  @map("review_date") @db.Date
+  committeeType      String                    @map("committee_type")
+  attendees          String[]                  @default([])
+  findingsSummary    String?                   @default("") @map("findings_summary")
+  escalation         Boolean?                  @default(false)
+  outcome            String?
+  createdAt          DateTime?                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime?                 @default(now()) @map("updated_at") @db.Timestamptz(6)
+  actions            Action[]
+  checklistResponses ChecklistResponseRecord[]
+  project            Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([projectId], map: "idx_poc_reviews_project_id")
+  @@map("poc_reviews")
+}
+
+model Action {
+  id            String     @id
+  projectId     String     @map("project_id")
+  reviewId      String?    @map("review_id")
+  description   String
+  owner         String
+  dueDate       DateTime?  @map("due_date") @db.Date
+  status        String
+  category      String
+  evidenceLinks String[]   @default([]) @map("evidence_links")
+  createdAt     DateTime?  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime?  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  project       Project    @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  review        PocReview? @relation(fields: [reviewId], references: [id], onUpdate: NoAction)
+
+  @@index([projectId], map: "idx_actions_project_id")
+  @@index([reviewId], map: "idx_actions_review_id")
+  @@map("actions")
+}
+
+model Risk {
+  id         String    @id
+  projectId  String    @map("project_id")
+  title      String
+  type       String
+  likelihood String?
+  impact     String?
+  ragStatus  String?   @map("rag_status")
+  mitigation String?   @default("")
+  owner      String
+  status     String
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([projectId], map: "idx_risks_project_id")
+  @@map("risks")
+}
+
+model AuditLog {
+  id          String   @id
+  projectId   String   @map("project_id")
+  timestamp   DateTime @default(now()) @db.Timestamptz(6)
+  actor       String
+  type        String
+  description String
+  oldValue    String?  @map("old_value")
+  newValue    String?  @map("new_value")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([projectId], map: "idx_audit_log_project_id")
+  @@map("audit_log")
+}
+
+model KdaDecision {
+  id               String    @id
+  projectId        String    @map("project_id")
+  gateName         String    @map("gate_name")
+  stage            String
+  submissionStatus String    @map("submission_status")
+  decision         String?
+  notes            String?   @default("")
+  signedOffBy      String    @map("signed_off_by")
+  date             DateTime  @db.Date
+  createdAt        DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([projectId], map: "idx_kda_decisions_project_id")
+  @@map("kda_decisions")
+}
+
+model PocSession {
+  id              String           @id
+  date            DateTime         @db.Date
+  committeeType   String           @map("committee_type")
+  status          String
+  attendees       String[]         @default([])
+  createdAt       DateTime?        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime?        @default(now()) @map("updated_at") @db.Timestamptz(6)
+  sessionProjects SessionProject[]
+
+  @@map("poc_sessions")
+}
+
+model SessionProject {
+  sessionId String     @map("session_id")
+  projectId String     @map("project_id")
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  session   PocSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([sessionId, projectId])
+  @@index([projectId], map: "idx_session_projects_project_id")
+  @@index([sessionId], map: "idx_session_projects_session_id")
+  @@map("session_projects")
+}
+
+model ChecklistResponseRecord {
+  id             String    @id
+  reviewId       String    @map("review_id")
+  section        String
+  item           String
+  response       String?
+  comment        String?   @default("")
+  evidenceLinks  String[]  @default([]) @map("evidence_links")
+  actionRequired Boolean?  @default(false) @map("action_required")
+  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  review         PocReview @relation(fields: [reviewId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([reviewId], map: "idx_checklist_responses_review_id")
+  @@map("checklist_responses")
+}
+
+model ConfigCluster {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  impactAreas String[] @default([]) @map("impact_areas")
+
+  @@map("config_clusters")
+}
+
+model ConfigStrategicObjective {
+  id          String  @id
+  label       String
+  description String?
+
+  @@map("config_strategic_objectives")
+}
+
+model ConfigChecklistTemplate {
+  id        Int      @id @default(autoincrement())
+  section   String
+  items     String[] @default([])
+  sortOrder Int      @map("sort_order")
+
+  @@map("config_checklist_template")
+}
+
+model ConfigActionCategory {
+  id    Int    @id @default(autoincrement())
+  value String @unique
+  label String
+
+  @@map("config_action_categories")
+}

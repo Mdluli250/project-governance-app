@@ -1,24 +1,16 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
+import { mapProfile } from "@/lib/prisma-mappers";
+import { hashPassword } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 
 // GET - load all profiles
 export async function GET() {
   try {
-    const result = await query(
-      "SELECT id, name, email, role, cluster, impact_area, password_changed FROM profiles ORDER BY name",
-    );
-    const data = result.rows;
+    const profiles = await prisma.profile.findMany({
+      orderBy: { name: "asc" },
+    });
 
-    const users = (data ?? []).map((row) => ({
-      id: row.id,
-      name: row.name,
-      email: row.email,
-      role: row.role,
-      cluster: row.cluster ?? undefined,
-      impactArea: row.impact_area ?? undefined,
-      passwordChanged: row.password_changed ?? false,
-    }));
-
+    const users = profiles.map(mapProfile);
     return NextResponse.json(users);
   } catch (error) {
     console.error("Failed to load profiles:", error);
@@ -48,38 +40,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate bcrypt hash for default password via pgcrypto
-    const hashResult = await query(
-      "SELECT generate_password_hash($1) as hash",
-      ["12345678"],
-    );
-    const passwordHash = hashResult.rows[0]?.hash ?? null;
+    // Generate bcrypt hash for default password
+    const passwordHash = await hashPassword("12345678");
 
-    const result = await query(
-      `INSERT INTO profiles (name, email, role, cluster, impact_area, password_hash, password_changed)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, name, email, role, cluster, impact_area, password_changed`,
-      [
+    const created = await prisma.profile.create({
+      data: {
+        id: `u${Date.now()}`,
         name,
-        email,
-        role,
-        cluster || null,
-        impactArea || null,
+        email: email.toLowerCase().trim(),
+        role: role,
+        cluster: cluster || null,
+        impactArea: impactArea || null,
         passwordHash,
-        false,
-      ],
-    );
-    const data = result.rows[0];
-
-    return NextResponse.json({
-      id: data.id,
-      name: data.name,
-      email: data.email,
-      role: data.role,
-      cluster: data.cluster ?? undefined,
-      impactArea: data.impact_area ?? undefined,
-      passwordChanged: data.password_changed ?? false,
+        passwordChanged: false,
+      },
     });
+
+    return NextResponse.json(mapProfile(created));
   } catch (error) {
     console.error("Failed to create profile:", error);
     return NextResponse.json(
@@ -106,45 +83,34 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    // Build dynamic UPDATE query
-    const setClauses: string[] = [];
-    const params: any[] = [];
-    let paramCount = 1;
+    const data: Record<string, unknown> = {};
 
     if (updates.name !== undefined) {
-      setClauses.push(`name = $${paramCount}`);
-      params.push(updates.name);
-      paramCount++;
+      data.name = updates.name;
     }
     if (updates.email !== undefined) {
-      setClauses.push(`email = $${paramCount}`);
-      params.push(updates.email);
-      paramCount++;
+      data.email = updates.email;
     }
     if (updates.role !== undefined) {
-      setClauses.push(`role = $${paramCount}`);
-      params.push(updates.role);
-      paramCount++;
+      data.role = updates.role;
     }
     if (updates.cluster !== undefined) {
-      setClauses.push(`cluster = $${paramCount}`);
-      params.push(updates.cluster || null);
-      paramCount++;
+      data.cluster = updates.cluster || null;
     }
     if (updates.impactArea !== undefined) {
-      setClauses.push(`impact_area = $${paramCount}`);
-      params.push(updates.impactArea || null);
-      paramCount++;
+      data.impactArea = updates.impactArea || null;
     }
 
-    if (setClauses.length === 0) {
+    if (Object.keys(data).length === 0) {
       return NextResponse.json({ success: true });
     }
 
-    params.push(id);
-    const sql = `UPDATE profiles SET ${setClauses.join(", ")} WHERE id = $${paramCount}`;
+    data.updatedAt = new Date();
 
-    await query(sql, params);
+    await prisma.profile.update({
+      where: { id },
+      data,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -170,17 +136,16 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
 
-    // Admin reset: set password_changed back to false
+    // Admin reset: set password back to default and mark as not changed
     if (resetToDefault) {
-      try {
-        await query("UPDATE profiles SET password_changed = $1 WHERE id = $2", [
-          false,
-          id,
-        ]);
-      } catch {
-        // Ignore DB errors for seed users
-      }
-
+      const defaultHash = await hashPassword("12345678");
+      await prisma.profile.update({
+        where: { id },
+        data: {
+          passwordHash: defaultHash,
+          passwordChanged: false,
+        },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -199,14 +164,14 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    try {
-      await query("UPDATE profiles SET password_changed = $1 WHERE id = $2", [
-        true,
-        id,
-      ]);
-    } catch {
-      // Ignore DB errors for seed users
-    }
+    const newHash = await hashPassword(newPassword);
+    await prisma.profile.update({
+      where: { id },
+      data: {
+        passwordHash: newHash,
+        passwordChanged: true,
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -231,7 +196,9 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    await query("DELETE FROM profiles WHERE id = $1", [id]);
+    await prisma.profile.delete({
+      where: { id },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

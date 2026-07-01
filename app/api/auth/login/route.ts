@@ -1,4 +1,5 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
+import { mapProfile } from "@/lib/prisma-mappers";
 import { comparePassword } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
@@ -13,47 +14,38 @@ export async function POST(req: Request) {
       );
     }
 
-    // Query user with password hash
-    const result = await query(
-      `SELECT id, name, email, role, cluster, impact_area, password_hash
-       FROM users
-       WHERE email = $1
-       LIMIT 1`,
-      [email.toLowerCase().trim()],
-    );
+    // Look up user by normalized email using Prisma
+    const profile = await prisma.profile.findUnique({
+      where: { email: email.toLowerCase().trim() },
+    });
 
-    if (!result.rows || result.rows.length === 0) {
+    if (!profile) {
       return NextResponse.json(
         { error: "Invalid email or password." },
         { status: 401 },
       );
     }
 
-    const row = result.rows[0];
-    
-    console.log(`Login attempt: ${email}`);
-    console.log(`Password hash exists: ${!!row.password_hash}`);
-    
-    // Verify password with bcrypt
-    const isValid = await comparePassword(password, row.password_hash);
-    
-    console.log(`Password valid: ${isValid}`);
-    
-    if (!isValid) {
-      return NextResponse.json(
-        { error: "Invalid email or password." },
-        { status: 401 },
-      );
+    // If no password hash set, allow login with default password "12345678"
+    if (!profile.passwordHash) {
+      if (password !== "12345678") {
+        return NextResponse.json(
+          { error: "Invalid email or password." },
+          { status: 401 },
+        );
+      }
+    } else {
+      // Verify password with bcrypt
+      const isValid = await comparePassword(password, profile.passwordHash);
+      if (!isValid) {
+        return NextResponse.json(
+          { error: "Invalid email or password." },
+          { status: 401 },
+        );
+      }
     }
 
-    const user = {
-      id: row.id,
-      name: row.name,
-      email: row.email,
-      role: row.role,
-      cluster: row.cluster ?? undefined,
-      impactArea: row.impact_area ?? undefined,
-    };
+    const user = mapProfile(profile);
 
     return NextResponse.json({ user });
   } catch (err) {

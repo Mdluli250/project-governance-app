@@ -1,43 +1,38 @@
-import { query } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 
-// GET - load all config
+// GET - load all config in parallel
 export async function GET() {
   try {
-    const [clustersRes, objectivesRes, checklistRes, categoriesRes] =
-      await Promise.all([
-        query("SELECT name, impact_areas FROM config_clusters ORDER BY id"),
-        query(
-          "SELECT id, label, description FROM config_strategic_objectives ORDER BY id",
-        ),
-        query(
-          "SELECT section, items, sort_order FROM config_checklist_template ORDER BY sort_order",
-        ),
-        query("SELECT value, label FROM config_action_categories ORDER BY id"),
-      ]);
+    const [clusters, objectives, checklist, categories] = await Promise.all([
+      prisma.configCluster.findMany({ orderBy: { id: "asc" } }),
+      prisma.configStrategicObjective.findMany({ orderBy: { id: "asc" } }),
+      prisma.configChecklistTemplate.findMany({ orderBy: { sortOrder: "asc" } }),
+      prisma.configActionCategory.findMany({ orderBy: { id: "asc" } }),
+    ]);
 
-    const clusters: string[] = [];
+    const clusterNames: string[] = [];
     const impactAreas: Record<string, string[]> = {};
-    for (const row of clustersRes.rows ?? []) {
-      clusters.push(row.name);
-      impactAreas[row.name] = row.impact_areas ?? [];
+    for (const row of clusters) {
+      clusterNames.push(row.name);
+      impactAreas[row.name] = row.impactAreas;
     }
 
     return NextResponse.json({
-      clusters,
+      clusters: clusterNames,
       impactAreas,
-      strategicObjectives: (objectivesRes.rows ?? []).map((r) => ({
-        id: r.id,
-        label: r.label,
-        description: r.description,
+      strategicObjectives: objectives.map((o) => ({
+        id: o.id,
+        label: o.label,
+        description: o.description,
       })),
-      checklistTemplate: (checklistRes.rows ?? []).map((r) => ({
-        section: r.section,
-        items: r.items ?? [],
+      checklistTemplate: checklist.map((c) => ({
+        section: c.section,
+        items: c.items,
       })),
-      actionCategories: (categoriesRes.rows ?? []).map((r) => ({
-        value: r.value,
-        label: r.label,
+      actionCategories: categories.map((c) => ({
+        value: c.value,
+        label: c.label,
       })),
     });
   } catch (err: unknown) {
@@ -50,7 +45,7 @@ export async function GET() {
   }
 }
 
-// PUT - save a specific config section
+// PUT - save a specific config section (uses Prisma transactions for atomicity)
 export async function PUT(req: NextRequest) {
   const body = await req.json();
   const { section, data } = body as { section: string; data: unknown };
@@ -62,7 +57,7 @@ export async function PUT(req: NextRequest) {
           clusters: string[];
           impactAreas: Record<string, string[]>;
         };
-        // GUARD: Never allow empty clusters to overwrite existing data.
+
         if (!clusters || clusters.length === 0) {
           return NextResponse.json(
             {
@@ -72,29 +67,27 @@ export async function PUT(req: NextRequest) {
             { status: 400 },
           );
         }
-        // Delete all existing rows
-        await query("DELETE FROM config_clusters");
-        if (clusters.length > 0) {
-          const values = clusters
-            .map(
-              (name: string, i: number) =>
-                `(${i + 1}, '${name.replace(/'/g, "''")}', $${i + 1})`,
-            )
-            .join(",");
-          await query(
-            `INSERT INTO config_clusters (id, name, impact_areas) VALUES ${values}`,
-            [...clusters.map((name: string) => impactAreas[name] ?? [])],
-          );
-        }
+
+        await prisma.$transaction(async (tx) => {
+          await tx.configCluster.deleteMany();
+          await tx.configCluster.createMany({
+            data: clusters.map((name, i) => ({
+              id: i + 1,
+              name,
+              impactAreas: impactAreas[name] ?? [],
+            })),
+          });
+        });
         break;
       }
+
       case "strategic_objectives": {
         const objectives = data as {
           id: string;
           label: string;
           description: string;
         }[];
-        // GUARD: Never allow empty objectives to overwrite existing data.
+
         if (!objectives || objectives.length === 0) {
           return NextResponse.json(
             {
@@ -104,54 +97,53 @@ export async function PUT(req: NextRequest) {
             { status: 400 },
           );
         }
-        await query("DELETE FROM config_strategic_objectives");
-        if (objectives.length > 0) {
-          const values = objectives
-            .map(
-              (o, i) =>
-                `('${o.id.replace(/'/g, "''")}', '${o.label.replace(/'/g, "''")}', $${i + 1})`,
-            )
-            .join(",");
-          await query(
-            `INSERT INTO config_strategic_objectives (id, label, description) VALUES ${values}`,
-            objectives.map((o) => o.description),
-          );
-        }
+
+        await prisma.$transaction(async (tx) => {
+          await tx.configStrategicObjective.deleteMany();
+          await tx.configStrategicObjective.createMany({
+            data: objectives.map((o) => ({
+              id: o.id,
+              label: o.label,
+              description: o.description,
+            })),
+          });
+        });
         break;
       }
+
       case "checklist_template": {
         const template = data as { section: string; items: string[] }[];
-        await query("DELETE FROM config_checklist_template");
-        if (template.length > 0) {
-          const values = template
-            .map(
-              (s, i) =>
-                `(${i + 1}, '${s.section.replace(/'/g, "''")}', $${i + 1}, ${i})`,
-            )
-            .join(",");
-          await query(
-            `INSERT INTO config_checklist_template (id, section, items, sort_order) VALUES ${values}`,
-            template.map((s) => s.items),
-          );
-        }
+
+        await prisma.$transaction(async (tx) => {
+          await tx.configChecklistTemplate.deleteMany();
+          await tx.configChecklistTemplate.createMany({
+            data: template.map((t, i) => ({
+              id: i + 1,
+              section: t.section,
+              items: t.items,
+              sortOrder: i,
+            })),
+          });
+        });
         break;
       }
+
       case "action_categories": {
         const categories = data as { value: string; label: string }[];
-        await query("DELETE FROM config_action_categories");
-        if (categories.length > 0) {
-          const values = categories
-            .map(
-              (c, i) =>
-                `(${i + 1}, '${c.value.replace(/'/g, "''")}', '${c.label.replace(/'/g, "''")}')`,
-            )
-            .join(",");
-          await query(
-            `INSERT INTO config_action_categories (id, value, label) VALUES ${values}`,
-          );
-        }
+
+        await prisma.$transaction(async (tx) => {
+          await tx.configActionCategory.deleteMany();
+          await tx.configActionCategory.createMany({
+            data: categories.map((c, i) => ({
+              id: i + 1,
+              value: c.value,
+              label: c.label,
+            })),
+          });
+        });
         break;
       }
+
       default:
         return NextResponse.json(
           { error: `Unknown section: ${section}` },

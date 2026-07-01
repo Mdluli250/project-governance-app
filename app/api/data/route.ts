@@ -1,212 +1,29 @@
 import { NextRequest, NextResponse } from "next/server"
-import { query } from "@/lib/db";
-
-// ── Mapping helpers: DB row <-> App shape ──────────────────
-
-function projectFromRow(r: Record<string, unknown>) {
-  return {
-    id: r.id,
-    shortTitle: r.short_title,
-    longTitle: r.long_title,
-    classification: r.classification,
-    cluster: r.cluster,
-    impactArea: r.impact_area,
-    pmId: r.pm_id,
-    sponsorName: r.sponsor_name,
-    strategicObjectives: r.strategic_objectives ?? [],
-    contractValue: Number(r.contract_value) || 0,
-    contractTerm: Number(r.contract_term) || 0,
-    startDate: r.start_date,
-    endDate: r.end_date,
-    thisYearAmount: Number(r.this_year_amount) || 0,
-    riskComplexity: r.risk_complexity,
-    reputationalRisk: r.reputational_risk,
-    rag: {
-      overall: r.rag_overall ?? "GREEN",
-      scope: r.rag_scope ?? "GREEN",
-      schedule: r.rag_schedule ?? "GREEN",
-      cost: r.rag_cost ?? "GREEN",
-      quality: r.rag_quality ?? "GREEN",
-      risk: r.rag_risk ?? "GREEN",
-      sheq: r.rag_sheq ?? "GREEN",
-      data: r.rag_data ?? "GREEN",
-      compliance: r.rag_compliance ?? "GREEN",
-    },
-    healthNarrative: r.health_narrative ?? "",
-    lastUpdated: r.last_updated,
-  }
-}
-
-function projectToRow(p: Record<string, unknown>) {
-  const rag = p.rag as Record<string, string> | undefined
-  const row: Record<string, unknown> = {}
-  if (p.id !== undefined) row.id = p.id
-  if (p.shortTitle !== undefined) row.short_title = p.shortTitle
-  if (p.longTitle !== undefined) row.long_title = p.longTitle
-  if (p.classification !== undefined) row.classification = p.classification
-  if (p.cluster !== undefined) row.cluster = p.cluster
-  if (p.impactArea !== undefined) row.impact_area = p.impactArea
-  if (p.pmId !== undefined) row.pm_id = p.pmId
-  if (p.sponsorName !== undefined) row.sponsor_name = p.sponsorName
-  if (p.strategicObjectives !== undefined) row.strategic_objectives = p.strategicObjectives
-  if (p.contractValue !== undefined) row.contract_value = p.contractValue
-  if (p.contractTerm !== undefined) row.contract_term = p.contractTerm
-  if (p.startDate !== undefined) row.start_date = p.startDate
-  if (p.endDate !== undefined) row.end_date = p.endDate
-  if (p.thisYearAmount !== undefined) row.this_year_amount = p.thisYearAmount
-  if (p.riskComplexity !== undefined) row.risk_complexity = p.riskComplexity
-  if (p.reputationalRisk !== undefined) row.reputational_risk = p.reputationalRisk
-  if (p.healthNarrative !== undefined) row.health_narrative = p.healthNarrative
-  if (p.lastUpdated !== undefined) row.last_updated = p.lastUpdated
-  if (rag) {
-    row.rag_overall = rag.overall
-    row.rag_scope = rag.scope
-    row.rag_schedule = rag.schedule
-    row.rag_cost = rag.cost
-    row.rag_quality = rag.quality
-    row.rag_risk = rag.risk
-    row.rag_sheq = rag.sheq
-    row.rag_data = rag.data
-    row.rag_compliance = rag.compliance
-  }
-  return row
-}
-
-function actionFromRow(r: Record<string, unknown>) {
-  return {
-    id: r.id,
-    projectId: r.project_id,
-    reviewId: r.review_id ?? undefined,
-    description: r.description,
-    owner: r.owner,
-    dueDate: r.due_date,
-    status: r.status,
-    category: r.category,
-    evidenceLinks: r.evidence_links ?? [],
-  }
-}
-
-function reviewFromRow(r: Record<string, unknown>) {
-  return {
-    id: r.id,
-    projectId: r.project_id,
-    reviewDate: r.review_date,
-    committeeType: r.committee_type,
-    attendees: r.attendees ?? [],
-    checklistResponses: [],
-    findingsSummary: r.findings_summary ?? "",
-    escalation: r.escalation ?? false,
-    outcome: r.outcome,
-  }
-}
-
-function riskFromRow(r: Record<string, unknown>) {
-  return {
-    id: r.id,
-    projectId: r.project_id,
-    title: r.title,
-    type: r.type,
-    likelihood: r.likelihood,
-    impact: r.impact,
-    ragStatus: r.rag_status,
-    mitigation: r.mitigation ?? "",
-    owner: r.owner,
-    status: r.status,
-  }
-}
-
-function auditFromRow(r: Record<string, unknown>) {
-  return {
-    id: r.id,
-    projectId: r.project_id,
-    timestamp: r.timestamp,
-    actor: r.actor,
-    type: r.type,
-    description: r.description,
-    oldValue: r.old_value ?? undefined,
-    newValue: r.new_value ?? undefined,
-  }
-}
-
-function kdaFromRow(r: Record<string, unknown>) {
-  return {
-    id: r.id,
-    projectId: r.project_id,
-    gateName: r.gate_name,
-    stage: r.stage,
-    submissionStatus: r.submission_status,
-    decision: r.decision,
-    notes: r.notes ?? "",
-    signedOffBy: r.signed_off_by,
-    date: r.date,
-  }
-}
-
-function sessionFromRow(r: Record<string, unknown>, projectIds: string[]) {
-  return {
-  id: r.id,
-  date: r.date,
-  committeeType: r.committee_type,
-  projectIds,
-  status: r.status,
-  attendees: (r.attendees as string[] | null) ?? [],
-  }
-  }
+import { prisma } from "@/lib/prisma"
+import { mapProject, mapAction, mapReview, mapRisk, mapAudit, mapKda, mapSession } from "@/lib/prisma-mappers"
 
 // ── GET: Load all data ─────────────────────────────────────
 export async function GET() {
   try {
-    const [projRes, actRes, revRes, riskRes, auditRes, kdaRes, sessRes, spRes, clRes] =
+    const [projects, actions, reviews, risks, auditLog, kdaDecisions, sessions] =
       await Promise.all([
-        query("SELECT * FROM projects ORDER BY short_title"),
-        query("SELECT * FROM actions ORDER BY created_at"),
-        query("SELECT * FROM poc_reviews ORDER BY review_date DESC"),
-        query("SELECT * FROM risks ORDER BY created_at"),
-        query("SELECT * FROM audit_log ORDER BY timestamp DESC"),
-        query("SELECT * FROM kda_decisions ORDER BY date DESC"),
-        query("SELECT * FROM poc_sessions ORDER BY date DESC"),
-        query("SELECT session_id, project_id FROM session_projects"),
-        query("SELECT * FROM checklist_responses"),
+        prisma.project.findMany({ include: { pm: true }, orderBy: { shortTitle: 'asc' } }),
+        prisma.action.findMany({ orderBy: { createdAt: 'asc' } }),
+        prisma.pocReview.findMany({ include: { checklistResponses: true }, orderBy: { reviewDate: 'desc' } }),
+        prisma.risk.findMany({ orderBy: { createdAt: 'asc' } }),
+        prisma.auditLog.findMany({ orderBy: { timestamp: 'desc' } }),
+        prisma.kdaDecision.findMany({ orderBy: { date: 'desc' } }),
+        prisma.pocSession.findMany({ include: { sessionProjects: true }, orderBy: { date: 'desc' } }),
       ])
 
-    // Build session -> projectIds map
-    const sessionProjectMap: Record<string, string[]> = {}
-    for (const sp of spRes.rows ?? []) {
-      if (!sessionProjectMap[sp.session_id]) sessionProjectMap[sp.session_id] = []
-      sessionProjectMap[sp.session_id].push(sp.project_id)
-    }
-
-    // Build review -> checklist map
-    const reviewChecklistMap: Record<string, unknown[]> = {}
-    for (const cl of clRes.rows ?? []) {
-      if (!reviewChecklistMap[cl.review_id]) reviewChecklistMap[cl.review_id] = []
-      reviewChecklistMap[cl.review_id].push({
-        id: cl.id,
-        section: cl.section,
-        item: cl.item,
-        response: cl.response,
-        comment: cl.comment ?? "",
-        evidenceLinks: cl.evidence_links ?? [],
-        actionRequired: cl.action_required ?? false,
-      })
-    }
-
-    const reviews = (revRes.rows ?? []).map((r) => {
-      const review = reviewFromRow(r)
-      review.checklistResponses = (reviewChecklistMap[r.id as string] ?? []) as typeof review.checklistResponses
-      return review
-    })
-
     return NextResponse.json({
-      projects: (projRes.rows ?? []).map(projectFromRow),
-      actions: (actRes.rows ?? []).map(actionFromRow),
-      reviews,
-      risks: (riskRes.rows ?? []).map(riskFromRow),
-      auditLog: (auditRes.rows ?? []).map(auditFromRow),
-      kdaDecisions: (kdaRes.rows ?? []).map(kdaFromRow),
-      sessions: (sessRes.rows ?? []).map((r) =>
-        sessionFromRow(r, sessionProjectMap[r.id as string] ?? [])
-      ),
+      projects: projects.map(mapProject),
+      actions: actions.map(mapAction),
+      reviews: reviews.map(mapReview),
+      risks: risks.map(mapRisk),
+      auditLog: auditLog.map(mapAudit),
+      kdaDecisions: kdaDecisions.map(mapKda),
+      sessions: sessions.map(mapSession),
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
@@ -224,348 +41,263 @@ export async function POST(req: NextRequest) {
     switch (entity) {
       case "project": {
         if (action === "upsert") {
-          const row = projectToRow(data)
-          const fields = Object.keys(row)
-          const placeholders = fields.map((_, i) => `$${i + 1}`)
-          const values = fields.map((f) => row[f])
-          const updateSet = fields.filter(f => f !== 'id').map((f, i) => `${f} = $${fields.indexOf(f) + 1}`).join(", ")
-          
-          await query(
-            `INSERT INTO projects (${fields.join(", ")}) VALUES (${placeholders.join(", ")})
-             ON CONFLICT (id) DO UPDATE SET ${updateSet}`,
-            values
-          )
+          const rag = data.rag as Record<string, string> | undefined
+          const projectData = {
+            shortTitle: data.shortTitle as string,
+            longTitle: data.longTitle as string,
+            classification: data.classification,
+            cluster: data.cluster as string,
+            impactArea: data.impactArea as string,
+            pmId: data.pmId as string,
+            sponsorName: data.sponsorName as string,
+            strategicObjectives: (data.strategicObjectives as string[]) ?? [],
+            contractValue: data.contractValue as number,
+            contractTerm: data.contractTerm as number,
+            startDate: data.startDate ? new Date(data.startDate as string) : null,
+            endDate: data.endDate ? new Date(data.endDate as string) : null,
+            thisYearAmount: data.thisYearAmount as number,
+            riskComplexity: (data.riskComplexity) || null,
+            reputationalRisk: (data.reputationalRisk) || null,
+            healthNarrative: (data.healthNarrative as string) ?? "",
+            lastUpdated: data.lastUpdated ? new Date(data.lastUpdated as string) : null,
+            ...(rag && {
+              ragOverall: rag.overall,
+              ragScope: rag.scope,
+              ragSchedule: rag.schedule,
+              ragCost: rag.cost,
+              ragQuality: rag.quality,
+              ragRisk: rag.risk,
+              ragSheq: rag.sheq,
+              ragData: rag.data,
+              ragCompliance: rag.compliance,
+            }),
+          }
+
+          await prisma.project.upsert({
+            where: { id: data.id as string },
+            create: { id: data.id as string, ...projectData },
+            update: projectData,
+          })
         }
         break
       }
       case "action": {
         if (action === "insert") {
-          await query(
-            `INSERT INTO actions (id, project_id, review_id, description, owner, due_date, status, category, evidence_links)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-            [
-              data.id,
-              data.projectId,
-              data.reviewId || null,
-              data.description,
-              data.owner,
-              data.dueDate,
-              data.status,
-              data.category,
-              data.evidenceLinks ?? [],
-            ]
-          )
+          await prisma.action.create({
+            data: {
+              id: data.id as string,
+              projectId: data.projectId as string,
+              reviewId: (data.reviewId as string) || null,
+              description: data.description as string,
+              owner: data.owner as string,
+              dueDate: data.dueDate ? new Date(data.dueDate as string) : null,
+              status: data.status,
+              category: data.category,
+              evidenceLinks: (data.evidenceLinks as string[]) ?? [],
+            },
+          })
         } else if (action === "update") {
-          const updates: [string, unknown][] = []
-          let paramIndex = 1
+          const updateData: Record<string, unknown> = {}
+          if (data.description !== undefined) updateData.description = data.description
+          if (data.owner !== undefined) updateData.owner = data.owner
+          if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate as string) : null
+          if (data.status !== undefined) updateData.status = data.status
+          if (data.category !== undefined) updateData.category = data.category
+          if (data.evidenceLinks !== undefined) updateData.evidenceLinks = data.evidenceLinks
 
-          if (data.description !== undefined) {
-            updates.push([`description = $${paramIndex}`, data.description])
-            paramIndex++
-          }
-          if (data.owner !== undefined) {
-            updates.push([`owner = $${paramIndex}`, data.owner])
-            paramIndex++
-          }
-          if (data.dueDate !== undefined) {
-            updates.push([`due_date = $${paramIndex}`, data.dueDate])
-            paramIndex++
-          }
-          if (data.status !== undefined) {
-            updates.push([`status = $${paramIndex}`, data.status])
-            paramIndex++
-          }
-          if (data.category !== undefined) {
-            updates.push([`category = $${paramIndex}`, data.category])
-            paramIndex++
-          }
-          if (data.evidenceLinks !== undefined) {
-            updates.push([`evidence_links = $${paramIndex}`, data.evidenceLinks])
-            paramIndex++
-          }
-
-          if (updates.length > 0) {
-            const updateSet = updates.map(([clause]) => clause).join(", ")
-            const values = updates.map(([, val]) => val)
-            values.push(data.id)
-
-            await query(
-              `UPDATE actions SET ${updateSet} WHERE id = $${paramIndex}`,
-              values
-            )
+          if (Object.keys(updateData).length > 0) {
+            await prisma.action.update({
+              where: { id: data.id as string },
+              data: updateData,
+            })
           }
         }
         break
       }
       case "review": {
         if (action === "insert") {
-          await query(
-            `INSERT INTO poc_reviews (id, project_id, review_date, committee_type, attendees, findings_summary, escalation, outcome)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [
-              data.id,
-              data.projectId,
-              data.reviewDate,
-              data.committeeType,
-              data.attendees ?? [],
-              data.findingsSummary ?? "",
-              data.escalation ?? false,
-              data.outcome,
-            ]
-          )
-
-          // Also insert checklist responses
           const checklist = (data.checklistResponses ?? []) as Record<string, unknown>[]
-          if (checklist.length > 0) {
-            for (const cl of checklist) {
-              await query(
-                `INSERT INTO checklist_responses (id, review_id, section, item, response, comment, evidence_links, action_required)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-                [
-                  cl.id,
-                  data.id,
-                  cl.section,
-                  cl.item,
-                  cl.response,
-                  cl.comment ?? "",
-                  cl.evidenceLinks ?? [],
-                  cl.actionRequired ?? false,
-                ]
-              )
-            }
-          }
+          await prisma.pocReview.create({
+            data: {
+              id: data.id as string,
+              projectId: data.projectId as string,
+              reviewDate: new Date(data.reviewDate as string),
+              committeeType: data.committeeType,
+              attendees: (data.attendees as string[]) ?? [],
+              findingsSummary: (data.findingsSummary as string) ?? "",
+              escalation: (data.escalation as boolean) ?? false,
+              outcome: (data.outcome) ?? null,
+              checklistResponses: checklist.length > 0 ? {
+                createMany: {
+                  data: checklist.map((cl) => ({
+                    id: cl.id as string,
+                    section: cl.section as string,
+                    item: cl.item as string,
+                    response: (cl.response) ?? null,
+                    comment: (cl.comment as string) ?? "",
+                    evidenceLinks: (cl.evidenceLinks as string[]) ?? [],
+                    actionRequired: (cl.actionRequired as boolean) ?? false,
+                  })),
+                },
+              } : undefined,
+            },
+          })
         } else if (action === "update") {
-          const updates: [string, unknown][] = []
-          let paramIndex = 1
-
-          if (data.findingsSummary !== undefined) {
-            updates.push([`findings_summary = $${paramIndex}`, data.findingsSummary])
-            paramIndex++
-          }
-          if (data.outcome !== undefined) {
-            updates.push([`outcome = $${paramIndex}`, data.outcome])
-            paramIndex++
-          }
-          if (data.escalation !== undefined) {
-            updates.push([`escalation = $${paramIndex}`, data.escalation])
-            paramIndex++
-          }
-          if (data.attendees !== undefined) {
-            updates.push([`attendees = $${paramIndex}`, data.attendees])
-            paramIndex++
-          }
-
-          if (updates.length > 0) {
-            const updateSet = updates.map(([clause]) => clause).join(", ")
-            const values = updates.map(([, val]) => val)
-            values.push(data.id)
-
-            await query(
-              `UPDATE poc_reviews SET ${updateSet} WHERE id = $${paramIndex}`,
-              values
-            )
-          }
-
-          // Update checklist responses if provided
           const checklist = data.checklistResponses as Record<string, unknown>[] | undefined
-          if (checklist && checklist.length > 0) {
-            // Delete old + re-insert
-            await query("DELETE FROM checklist_responses WHERE review_id = $1", [data.id])
-            for (const cl of checklist) {
-              await query(
-                `INSERT INTO checklist_responses (id, review_id, section, item, response, comment, evidence_links, action_required)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-                [
-                  cl.id,
-                  data.id,
-                  cl.section,
-                  cl.item,
-                  cl.response,
-                  cl.comment ?? "",
-                  cl.evidenceLinks ?? [],
-                  cl.actionRequired ?? false,
-                ]
-              )
+
+          await prisma.$transaction(async (tx) => {
+            const updateData: Record<string, unknown> = {}
+            if (data.findingsSummary !== undefined) updateData.findingsSummary = data.findingsSummary
+            if (data.outcome !== undefined) updateData.outcome = data.outcome
+            if (data.escalation !== undefined) updateData.escalation = data.escalation
+            if (data.attendees !== undefined) updateData.attendees = data.attendees
+
+            if (Object.keys(updateData).length > 0) {
+              await tx.pocReview.update({
+                where: { id: data.id as string },
+                data: updateData,
+              })
             }
-          }
+
+            if (checklist && checklist.length > 0) {
+              await tx.checklistResponseRecord.deleteMany({
+                where: { reviewId: data.id as string },
+              })
+              await tx.checklistResponseRecord.createMany({
+                data: checklist.map((cl) => ({
+                  id: cl.id as string,
+                  reviewId: data.id as string,
+                  section: cl.section as string,
+                  item: cl.item as string,
+                  response: (cl.response) ?? null,
+                  comment: (cl.comment as string) ?? "",
+                  evidenceLinks: (cl.evidenceLinks as string[]) ?? [],
+                  actionRequired: (cl.actionRequired as boolean) ?? false,
+                })),
+              })
+            }
+          })
         }
         break
       }
       case "risk": {
         if (action === "insert") {
-          await query(
-            `INSERT INTO risks (id, project_id, title, type, likelihood, impact, rag_status, mitigation, owner, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-            [
-              data.id,
-              data.projectId,
-              data.title,
-              data.type,
-              data.likelihood,
-              data.impact,
-              data.ragStatus,
-              data.mitigation ?? "",
-              data.owner,
-              data.status,
-            ]
-          )
+          await prisma.risk.create({
+            data: {
+              id: data.id as string,
+              projectId: data.projectId as string,
+              title: data.title as string,
+              type: data.type,
+              likelihood: (data.likelihood) ?? null,
+              impact: (data.impact) ?? null,
+              ragStatus: (data.ragStatus) ?? null,
+              mitigation: (data.mitigation as string) ?? "",
+              owner: data.owner as string,
+              status: data.status,
+            },
+          })
         } else if (action === "update") {
-          const updates: [string, unknown][] = []
-          let paramIndex = 1
+          const updateData: Record<string, unknown> = {}
+          if (data.title !== undefined) updateData.title = data.title
+          if (data.type !== undefined) updateData.type = data.type
+          if (data.likelihood !== undefined) updateData.likelihood = data.likelihood
+          if (data.impact !== undefined) updateData.impact = data.impact
+          if (data.ragStatus !== undefined) updateData.ragStatus = data.ragStatus
+          if (data.mitigation !== undefined) updateData.mitigation = data.mitigation
+          if (data.owner !== undefined) updateData.owner = data.owner
+          if (data.status !== undefined) updateData.status = data.status
 
-          if (data.title !== undefined) {
-            updates.push([`title = $${paramIndex}`, data.title])
-            paramIndex++
-          }
-          if (data.type !== undefined) {
-            updates.push([`type = $${paramIndex}`, data.type])
-            paramIndex++
-          }
-          if (data.likelihood !== undefined) {
-            updates.push([`likelihood = $${paramIndex}`, data.likelihood])
-            paramIndex++
-          }
-          if (data.impact !== undefined) {
-            updates.push([`impact = $${paramIndex}`, data.impact])
-            paramIndex++
-          }
-          if (data.ragStatus !== undefined) {
-            updates.push([`rag_status = $${paramIndex}`, data.ragStatus])
-            paramIndex++
-          }
-          if (data.mitigation !== undefined) {
-            updates.push([`mitigation = $${paramIndex}`, data.mitigation])
-            paramIndex++
-          }
-          if (data.owner !== undefined) {
-            updates.push([`owner = $${paramIndex}`, data.owner])
-            paramIndex++
-          }
-          if (data.status !== undefined) {
-            updates.push([`status = $${paramIndex}`, data.status])
-            paramIndex++
-          }
-
-          if (updates.length > 0) {
-            const updateSet = updates.map(([clause]) => clause).join(", ")
-            const values = updates.map(([, val]) => val)
-            values.push(data.id)
-
-            await query(
-              `UPDATE risks SET ${updateSet} WHERE id = $${paramIndex}`,
-              values
-            )
+          if (Object.keys(updateData).length > 0) {
+            await prisma.risk.update({
+              where: { id: data.id as string },
+              data: updateData,
+            })
           }
         }
         break
       }
       case "audit": {
         if (action === "insert") {
-          await query(
-            `INSERT INTO audit_log (id, project_id, timestamp, actor, type, description, old_value, new_value)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [
-              data.id,
-              data.projectId,
-              data.timestamp,
-              data.actor,
-              data.type,
-              data.description,
-              data.oldValue ?? null,
-              data.newValue ?? null,
-            ]
-          )
+          await prisma.auditLog.create({
+            data: {
+              id: data.id as string,
+              projectId: data.projectId as string,
+              timestamp: new Date(data.timestamp as string),
+              actor: data.actor as string,
+              type: data.type,
+              description: data.description as string,
+              oldValue: (data.oldValue as string) ?? null,
+              newValue: (data.newValue as string) ?? null,
+            },
+          })
         }
         break
       }
       case "kda": {
         if (action === "insert") {
-          await query(
-            `INSERT INTO kda_decisions (id, project_id, gate_name, stage, submission_status, decision, notes, signed_off_by, date)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-            [
-              data.id,
-              data.projectId,
-              data.gateName,
-              data.stage,
-              data.submissionStatus,
-              data.decision,
-              data.notes ?? "",
-              data.signedOffBy,
-              data.date,
-            ]
-          )
+          await prisma.kdaDecision.create({
+            data: {
+              id: data.id as string,
+              projectId: data.projectId as string,
+              gateName: data.gateName as string,
+              stage: data.stage as string,
+              submissionStatus: data.submissionStatus as string,
+              decision: (data.decision) ?? null,
+              notes: (data.notes as string) ?? "",
+              signedOffBy: data.signedOffBy as string,
+              date: new Date(data.date as string),
+            },
+          })
         }
         break
       }
       case "session": {
         if (action === "insert") {
-          await query(
-            `INSERT INTO poc_sessions (id, date, committee_type, status, attendees)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [
-              data.id,
-              data.date,
-              data.committeeType,
-              data.status,
-              (data.attendees as string[]) ?? [],
-            ]
-          )
-
-          const pIds = (data.projectIds ?? []) as string[]
-          if (pIds.length > 0) {
-            for (const pid of pIds) {
-              await query(
-                `INSERT INTO session_projects (session_id, project_id) VALUES ($1, $2)`,
-                [data.id, pid]
-              )
-            }
-          }
+          const projectIds = (data.projectIds ?? []) as string[]
+          await prisma.pocSession.create({
+            data: {
+              id: data.id as string,
+              date: new Date(data.date as string),
+              committeeType: data.committeeType,
+              status: data.status,
+              attendees: (data.attendees as string[]) ?? [],
+              sessionProjects: projectIds.length > 0 ? {
+                createMany: {
+                  data: projectIds.map((pid) => ({ projectId: pid })),
+                },
+              } : undefined,
+            },
+          })
         } else if (action === "update") {
-          const updates: [string, unknown][] = []
-          let paramIndex = 1
+          await prisma.$transaction(async (tx) => {
+            const updateData: Record<string, unknown> = {}
+            if (data.status !== undefined) updateData.status = data.status
+            if (data.date !== undefined) updateData.date = new Date(data.date as string)
+            if (data.committeeType !== undefined) updateData.committeeType = data.committeeType
+            if (data.attendees !== undefined) updateData.attendees = data.attendees
 
-          if (data.status !== undefined) {
-            updates.push([`status = $${paramIndex}`, data.status])
-            paramIndex++
-          }
-          if (data.date !== undefined) {
-            updates.push([`date = $${paramIndex}`, data.date])
-            paramIndex++
-          }
-          if (data.committeeType !== undefined) {
-            updates.push([`committee_type = $${paramIndex}`, data.committeeType])
-            paramIndex++
-          }
-          if (data.attendees !== undefined) {
-            updates.push([`attendees = $${paramIndex}`, data.attendees])
-            paramIndex++
-          }
+            if (Object.keys(updateData).length > 0) {
+              await tx.pocSession.update({
+                where: { id: data.id as string },
+                data: updateData,
+              })
+            }
 
-          if (updates.length > 0) {
-            const updateSet = updates.map(([clause]) => clause).join(", ")
-            const values = updates.map(([, val]) => val)
-            values.push(data.id)
-
-            await query(
-              `UPDATE poc_sessions SET ${updateSet} WHERE id = $${paramIndex}`,
-              values
-            )
-          }
-
-          // Update project list if provided
-          if (data.projectIds !== undefined) {
-            await query(`DELETE FROM session_projects WHERE session_id = $1`, [data.id])
-            const pIds = data.projectIds as string[]
-            if (pIds.length > 0) {
-              for (const pid of pIds) {
-                await query(
-                  `INSERT INTO session_projects (session_id, project_id) VALUES ($1, $2)`,
-                  [data.id, pid]
-                )
+            if (data.projectIds !== undefined) {
+              await tx.sessionProject.deleteMany({
+                where: { sessionId: data.id as string },
+              })
+              const pIds = data.projectIds as string[]
+              if (pIds.length > 0) {
+                await tx.sessionProject.createMany({
+                  data: pIds.map((pid) => ({
+                    sessionId: data.id as string,
+                    projectId: pid,
+                  })),
+                })
               }
             }
-          }
+          })
         }
         break
       }
