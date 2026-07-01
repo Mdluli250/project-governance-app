@@ -13,6 +13,7 @@ import type {
   AuditType,
 } from "./types"
 import { loadUsers, createUser as createUserDb, updateUserDb, deleteUserDb } from "./users-db"
+import { setAuthToken, clearAuthToken, getAuthHeaders } from "./auth-token"
 
 import {
   CLASSIFICATION_THRESHOLDS as INITIAL_CLASSIFICATION_THRESHOLDS,
@@ -88,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User>(EMPTY_USER)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [mustChangePassword, setMustChangePassword] = useState(false)
-  const [usersLoaded, setUsersLoaded] = useState(false)
+  const [usersLoaded, setUsersLoaded] = useState(true)
   const loadDone = useRef(false)
 
   // Restore session from localStorage on mount
@@ -96,20 +97,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // If the user already has a session, they already passed the change-password gate.
   useEffect(() => {
     const stored = localStorage.getItem("gov_session")
-    if (stored) {
+    const token = localStorage.getItem("gov_auth_token")
+    if (stored && token) {
       try {
         const user = JSON.parse(stored) as User
         setCurrentUser(user)
         setIsAuthenticated(true)
       } catch {
         localStorage.removeItem("gov_session")
+        localStorage.removeItem("gov_auth_token")
       }
+    } else {
+      // No valid token — clear stale session
+      localStorage.removeItem("gov_session")
+      localStorage.removeItem("gov_auth_token")
     }
   }, [])
 
-  // Load users from Supabase on mount, with a timeout fallback
+  // Load users from API when authenticated, with a timeout fallback
   useEffect(() => {
     if (loadDone.current) return
+    if (!isAuthenticated) return
     loadDone.current = true
 
     // Ensure usersLoaded is set even if the fetch hangs
@@ -142,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error("[v0] Failed to load users from Supabase:", err)
         setUsersLoaded(true)
       })
-  }, [])
+  }, [isAuthenticated])
 
   const DEFAULT_PASSWORD = "12345678"
 
@@ -184,9 +192,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           impactArea: data.user.impactArea,
         }
         
+        // Store JWT token for authenticated API calls
+        if (data.token) {
+          setAuthToken(data.token)
+        }
+        
         setCurrentUser(user)
         setIsAuthenticated(true)
-        setMustChangePassword(false)
+        setMustChangePassword(!data.user.passwordChanged)
         localStorage.setItem("gov_session", JSON.stringify(user))
         return { success: true }
       }
@@ -208,7 +221,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch("/api/users", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ id: currentUser.id, newPassword }),
       })
       if (!res.ok) {
@@ -232,7 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch("/api/users", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ id: userId, resetToDefault: true }),
       })
       if (!res.ok) {
@@ -253,6 +266,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCurrentUser(EMPTY_USER)
     setIsAuthenticated(false)
     setMustChangePassword(false)
+    clearAuthToken()
     localStorage.removeItem("gov_session")
   }, [])
 
@@ -355,6 +369,7 @@ export function useData() {
 let _auditId = 100
 
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [reviews, setReviews] = useState<POCReview[]>([])
   const [actions, setActions] = useState<Action[]>([])
@@ -365,9 +380,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [dataLoaded, setDataLoaded] = useState(false)
   const dataLoadDone = useRef(false)
 
-  // ── Load all data from Supabase on mount (never auto-seed) ─
+  // ── Load all data from Supabase when authenticated ─
   useEffect(() => {
     if (dataLoadDone.current) return
+    if (!isAuthenticated) return
     dataLoadDone.current = true
 
     async function init() {
@@ -395,7 +411,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       }
     }
     init()
-  }, [])
+  }, [isAuthenticated])
 
   // Config state -- always starts empty, loaded from Supabase only.
   // No hardcoded seed data is used as initial state.
@@ -419,9 +435,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   useEffect(() => { clustersRef.current = clusters }, [clusters])
   useEffect(() => { impactAreasRef.current = impactAreas }, [impactAreas])
 
-  // ── Load config from Supabase on mount ───────────────────
+  // ── Load config from Supabase when authenticated ───────────────────
   useEffect(() => {
     if (initialLoadDone.current) return
+    if (!isAuthenticated) return
     initialLoadDone.current = true
     loadAllConfig()
       .then((cfg) => {
@@ -441,7 +458,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         // This keeps the persist guards locked, preventing empty state
         // from overwriting real data in the database.
       })
-  }, [])
+  }, [isAuthenticated])
 
   // Debounced cluster save to handle rapid setClusters + setImpactAreas calls
   const clusterSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)

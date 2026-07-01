@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { verifyAuth } from "@/lib/auth-middleware";
 
 // GET - load all config in parallel
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const authError = verifyAuth(req);
+  if (authError) return authError;
+
   try {
     const [clusters, objectives, checklist, categories] = await Promise.all([
       prisma.configCluster.findMany({ orderBy: { id: "asc" } }),
@@ -39,7 +43,7 @@ export async function GET() {
     const message = err instanceof Error ? err.message : String(err);
     console.error("Config load error:", message);
     return NextResponse.json(
-      { error: "Failed to load config", detail: message },
+      { error: "Failed to load config", details: [message] },
       { status: 500 },
     );
   }
@@ -47,6 +51,9 @@ export async function GET() {
 
 // PUT - save a specific config section (uses Prisma transactions for atomicity)
 export async function PUT(req: NextRequest) {
+  const authError = verifyAuth(req);
+  if (authError) return authError;
+
   const body = await req.json();
   const { section, data } = body as { section: string; data: unknown };
 
@@ -156,7 +163,7 @@ export async function PUT(req: NextRequest) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("Config save error:", message);
     return NextResponse.json(
-      { error: "Failed to save config", detail: message },
+      { error: "Failed to save config", details: [message] },
       { status: 500 },
     );
   }

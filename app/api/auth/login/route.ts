@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { mapProfile } from "@/lib/prisma-mappers";
 import { comparePassword } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import jwt from "jsonwebtoken";
 
 export async function POST(req: Request) {
   try {
@@ -26,28 +27,32 @@ export async function POST(req: Request) {
       );
     }
 
-    // If no password hash set, allow login with default password "12345678"
+    // Users without a password hash cannot login
     if (!profile.passwordHash) {
-      if (password !== "12345678") {
-        return NextResponse.json(
-          { error: "Invalid email or password." },
-          { status: 401 },
-        );
-      }
-    } else {
-      // Verify password with bcrypt
-      const isValid = await comparePassword(password, profile.passwordHash);
-      if (!isValid) {
-        return NextResponse.json(
-          { error: "Invalid email or password." },
-          { status: 401 },
-        );
-      }
+      return NextResponse.json(
+        { error: "Account not activated" },
+        { status: 401 },
+      );
+    }
+
+    // Verify password with bcrypt
+    const isValid = await comparePassword(password, profile.passwordHash);
+    if (!isValid) {
+      return NextResponse.json(
+        { error: "Invalid email or password." },
+        { status: 401 },
+      );
     }
 
     const user = mapProfile(profile);
 
-    return NextResponse.json({ user });
+    // Generate JWT token for authenticated API access
+    const secret = process.env.JWT_SECRET;
+    const token = secret
+      ? jwt.sign({ sub: profile.id, email: profile.email, role: profile.role }, secret, { expiresIn: "24h" })
+      : undefined;
+
+    return NextResponse.json({ user, token });
   } catch (err) {
     console.error("Login error:", err);
     return NextResponse.json(

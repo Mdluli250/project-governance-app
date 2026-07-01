@@ -130,6 +130,11 @@ vi.mock("@/lib/auth", () => ({
   hashPassword: vi.fn().mockResolvedValue("hashed_default_password"),
 }));
 
+// ─── Mock auth middleware to bypass JWT verification in unit tests ────────────
+vi.mock("@/lib/auth-middleware", () => ({
+  verifyAuth: vi.fn().mockReturnValue(null),
+}));
+
 // ─── Import route handlers after mocks are set up ────────────────────────────
 import { GET as dataGET, POST as dataPOST } from "@/app/api/data/route";
 import { GET as configGET, PUT as configPUT } from "@/app/api/config/route";

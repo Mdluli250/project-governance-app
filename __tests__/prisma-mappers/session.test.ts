@@ -20,16 +20,21 @@ function arbSessionProject(sessionId: string) {
   })
 }
 
+/** Generate a valid date (fast-check's fc.date() can produce invalid Date(NaN) even with min/max in some edge cases) */
+function arbValidDate() {
+  return fc.integer({ min: 946684800000, max: 4102444800000 }).map((ts) => new Date(ts))
+}
+
 /** Arbitrary for a valid Prisma PocSession record with sessionProjects */
 const arbSessionRow: fc.Arbitrary<SessionRow> = fc.uuid().chain((sessionId) =>
   fc.record({
     id: fc.constant(sessionId),
-    date: fc.date(),
+    date: arbValidDate(),
     committeeType: fc.constantFrom(...committeeTypes),
     status: fc.constantFrom(...sessionStatuses),
     attendees: fc.array(fc.string({ minLength: 1, maxLength: 50 }), { minLength: 0, maxLength: 10 }),
-    createdAt: fc.date(),
-    updatedAt: fc.date(),
+    createdAt: arbValidDate(),
+    updatedAt: arbValidDate(),
     sessionProjects: fc.array(arbSessionProject(sessionId), { minLength: 0, maxLength: 20 }),
   })
 )

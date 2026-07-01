@@ -3,6 +3,7 @@ import type {
   ChecklistSection,
   ActionCategoryItem,
 } from "./store"
+import { getAuthHeaders } from "./auth-token"
 
 // ── Load all config via API route (uses service role on server) ─
 export async function loadAllConfig(): Promise<{
@@ -12,7 +13,9 @@ export async function loadAllConfig(): Promise<{
   checklistTemplate: ChecklistSection[]
   actionCategories: ActionCategoryItem[]
 }> {
-  const res = await fetch("/api/config")
+  const res = await fetch("/api/config", {
+    headers: { ...getAuthHeaders() },
+  })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     console.error("loadAllConfig failed:", res.status, body)
@@ -25,7 +28,7 @@ export async function loadAllConfig(): Promise<{
 async function saveSection(section: string, data: unknown) {
   const res = await fetch("/api/config", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({ section, data }),
   })
   if (!res.ok) {

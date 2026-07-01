@@ -29,6 +29,11 @@ vi.mock("@/lib/auth", () => ({
   hashPassword: vi.fn().mockResolvedValue("hashed_password"),
 }));
 
+// Mock auth middleware to bypass JWT verification in unit tests
+vi.mock("@/lib/auth-middleware", () => ({
+  verifyAuth: vi.fn().mockReturnValue(null),
+}));
+
 // Mock prisma-mappers
 vi.mock("@/lib/prisma-mappers", () => ({
   mapProfile: vi.fn((row) => ({

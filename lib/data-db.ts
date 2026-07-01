@@ -1,6 +1,7 @@
 // Client-side helpers to load & persist all data entities via /api/data
 
 import type { Project, Action, POCReview, RiskIssue, AuditEntry, KDADecision, POCSession } from "./types"
+import { getAuthHeaders } from "./auth-token"
 
 export interface AllData {
   projects: Project[]
@@ -13,7 +14,9 @@ export interface AllData {
 }
 
 export async function loadAllData(): Promise<AllData> {
-  const res = await fetch("/api/data")
+  const res = await fetch("/api/data", {
+    headers: { ...getAuthHeaders() },
+  })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.error || `Failed to load data (${res.status})`)
@@ -26,7 +29,7 @@ export async function persistEntity(entity: string, action: string, data: Record
   try {
     const res = await fetch("/api/data", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({ entity, action, data }),
     })
     if (!res.ok) {

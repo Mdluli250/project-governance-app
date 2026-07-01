@@ -1,10 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { mapProfile } from "@/lib/prisma-mappers";
 import { hashPassword } from "@/lib/auth";
+import { verifyAuth } from "@/lib/auth-middleware";
 import { NextRequest, NextResponse } from "next/server";
 
 // GET - load all profiles
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const authError = verifyAuth(req);
+  if (authError) return authError;
+
   try {
     const profiles = await prisma.profile.findMany({
       orderBy: { name: "asc" },
@@ -15,7 +19,7 @@ export async function GET() {
   } catch (error) {
     console.error("Failed to load profiles:", error);
     return NextResponse.json(
-      { error: "Failed to load profiles", detail: String(error) },
+      { error: "Failed to load profiles", details: [String(error)] },
       { status: 500 },
     );
   }
@@ -23,6 +27,9 @@ export async function GET() {
 
 // POST - create a new profile
 export async function POST(req: NextRequest) {
+  const authError = verifyAuth(req);
+  if (authError) return authError;
+
   try {
     const body = await req.json();
     const { name, email, role, cluster, impactArea } = body as {
@@ -40,12 +47,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate bcrypt hash for default password
-    const passwordHash = await hashPassword("12345678");
+    // Generate a cryptographically random temporary password
+    const temporaryPassword = crypto.randomUUID().slice(0, 12);
+    const passwordHash = await hashPassword(temporaryPassword);
 
     const created = await prisma.profile.create({
       data: {
-        id: `u${Date.now()}`,
+        id: crypto.randomUUID(),
         name,
         email: email.toLowerCase().trim(),
         role: role,
@@ -56,11 +64,14 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(mapProfile(created));
+    return NextResponse.json({
+      ...mapProfile(created),
+      temporaryPassword,
+    });
   } catch (error) {
     console.error("Failed to create profile:", error);
     return NextResponse.json(
-      { error: "Failed to create profile", detail: String(error) },
+      { error: "Failed to create profile", details: [String(error)] },
       { status: 500 },
     );
   }
@@ -68,6 +79,9 @@ export async function POST(req: NextRequest) {
 
 // PUT - update an existing profile
 export async function PUT(req: NextRequest) {
+  const authError = verifyAuth(req);
+  if (authError) return authError;
+
   try {
     const body = await req.json();
     const { id, ...updates } = body as {
@@ -116,7 +130,7 @@ export async function PUT(req: NextRequest) {
   } catch (error) {
     console.error("Failed to update profile:", error);
     return NextResponse.json(
-      { error: "Failed to update profile", detail: String(error) },
+      { error: "Failed to update profile", details: [String(error)] },
       { status: 500 },
     );
   }
@@ -124,6 +138,9 @@ export async function PUT(req: NextRequest) {
 
 // PATCH - change user password OR admin reset password
 export async function PATCH(req: NextRequest) {
+  const authError = verifyAuth(req);
+  if (authError) return authError;
+
   try {
     const body = await req.json();
     const { id, newPassword, resetToDefault } = body as {
@@ -177,7 +194,7 @@ export async function PATCH(req: NextRequest) {
   } catch (error) {
     console.error("Failed to patch profile:", error);
     return NextResponse.json(
-      { error: "Failed to patch profile", detail: String(error) },
+      { error: "Failed to patch profile", details: [String(error)] },
       { status: 500 },
     );
   }
@@ -185,6 +202,9 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE - remove a profile
 export async function DELETE(req: NextRequest) {
+  const authError = verifyAuth(req);
+  if (authError) return authError;
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
@@ -196,6 +216,23 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
+    // Check for dependent projects before deletion
+    const projectCount = await prisma.project.count({
+      where: { pmId: id },
+    });
+
+    if (projectCount > 0) {
+      return NextResponse.json(
+        {
+          error: "Cannot delete user with assigned projects",
+          details: [
+            `User is PM on ${projectCount} project(s). Reassign projects before deletion.`,
+          ],
+        },
+        { status: 409 },
+      );
+    }
+
     await prisma.profile.delete({
       where: { id },
     });
@@ -204,7 +241,7 @@ export async function DELETE(req: NextRequest) {
   } catch (error) {
     console.error("Failed to delete profile:", error);
     return NextResponse.json(
-      { error: "Failed to delete profile", detail: String(error) },
+      { error: "Failed to delete profile", details: [String(error)] },
       { status: 500 },
     );
   }

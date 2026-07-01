@@ -1,8 +1,17 @@
 import { prisma } from "@/lib/prisma";
-import { comparePassword } from "@/lib/auth";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { verifyAuth } from "@/lib/auth-middleware";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  // Return 404 in production — debug endpoint should not be accessible
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not Found" }, { status: 404 });
+  }
+
+  // Require JWT authentication in non-production environments
+  const authError = verifyAuth(req);
+  if (authError) return authError;
+
   try {
     const { email, password } = await req.json();
 
@@ -18,7 +27,6 @@ export async function POST(req: Request) {
         role: true,
         cluster: true,
         impactArea: true,
-        passwordHash: true,
       },
     });
 
@@ -29,29 +37,6 @@ export async function POST(req: Request) {
         { error: "User not found", debug: { email, found: false } },
         { status: 401 },
       );
-    }
-
-    console.log(`DEBUG: Password hash exists: ${profile.passwordHash ? 'yes' : 'no'}`);
-    console.log(`DEBUG: Hash length: ${profile.passwordHash?.length}`);
-
-    // If no password hash set, allow login with default password
-    if (!profile.passwordHash) {
-      if (password !== "12345678") {
-        return NextResponse.json(
-          { error: "Invalid password (no hash set, default password expected)", debug: { email, valid: false } },
-          { status: 401 },
-        );
-      }
-    } else {
-      const isValid = await comparePassword(password, profile.passwordHash);
-      console.log(`DEBUG: Password valid: ${isValid}`);
-
-      if (!isValid) {
-        return NextResponse.json(
-          { error: "Invalid password", debug: { email, valid: false } },
-          { status: 401 },
-        );
-      }
     }
 
     const user = {

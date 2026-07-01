@@ -196,7 +196,7 @@ export const SessionPrintReport = forwardRef<HTMLDivElement, SessionPrintReportP
                       <td style={{ border: "none", fontWeight: 600, width: "140px" }}>
                         Full Title
                       </td>
-                      <td style={{ border: "none" }}>{project.title}</td>
+                      <td style={{ border: "none" }}>{project.longTitle}</td>
                     </tr>
                     <tr>
                       <td style={{ border: "none", fontWeight: 600 }}>Classification</td>
@@ -275,8 +275,8 @@ export const SessionPrintReport = forwardRef<HTMLDivElement, SessionPrintReportP
                 <table>
                   <thead>
                     <tr>
-                      <th>Description</th>
-                      <th>Severity</th>
+                      <th>Title</th>
+                      <th>RAG</th>
                       <th>Owner</th>
                       <th>Status</th>
                     </tr>
@@ -284,8 +284,8 @@ export const SessionPrintReport = forwardRef<HTMLDivElement, SessionPrintReportP
                   <tbody>
                     {openRisks.map((r) => (
                       <tr key={r.id}>
-                        <td>{r.description}</td>
-                        <td>{r.severity}</td>
+                        <td>{r.title}</td>
+                        <td>{r.ragStatus}</td>
                         <td>{r.owner}</td>
                         <td>{r.status}</td>
                       </tr>

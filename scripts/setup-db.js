@@ -1,13 +1,8 @@
 const { Client } = require("pg");
 
 async function checkUsers() {
-  // Try connecting to default postgres database
   const client = new Client({
-    host: "localhost",
-    port: 5432,
-    user: "supabase_admin", // default superuser
-    password: "Red199330PP", // assuming same password
-    database: "postgres",
+    connectionString: process.env.DATABASE_URL || "postgresql://supabase_admin:your_password@localhost:5432/postgres",
   });
 
   try {

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   role TEXT NOT NULL CHECK (role IN ('PM', 'POC_MEMBER', 'POC_CHAIR', 'ADMIN')),
   cluster TEXT,
   impact_area TEXT,
+  password_hash TEXT,
   password_changed BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

@@ -1,7 +1,10 @@
 import type { User } from "./types"
+import { getAuthHeaders } from "./auth-token"
 
 export async function loadUsers(): Promise<User[]> {
-  const res = await fetch("/api/users")
+  const res = await fetch("/api/users", {
+    headers: { ...getAuthHeaders() },
+  })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     console.error("loadUsers failed:", res.status, body)
@@ -15,7 +18,7 @@ export async function createUser(
 ): Promise<User> {
   const res = await fetch("/api/users", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(user),
   })
   if (!res.ok) {
@@ -31,7 +34,7 @@ export async function updateUserDb(
 ): Promise<void> {
   const res = await fetch("/api/users", {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify({ id, ...updates }),
   })
   if (!res.ok) {
@@ -43,6 +46,7 @@ export async function updateUserDb(
 export async function deleteUserDb(id: string): Promise<void> {
   const res = await fetch(`/api/users?id=${encodeURIComponent(id)}`, {
     method: "DELETE",
+    headers: { ...getAuthHeaders() },
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
