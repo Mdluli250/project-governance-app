@@ -35,8 +35,10 @@ import {
   Clock,
   CheckCircle2,
   FileEdit,
+  Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
+import { DeleteSessionDialog } from "@/components/sessions/delete-session-dialog"
 
 const statusConfig: Record<string, { label: string; icon: typeof Clock; className: string }> = {
   DRAFT: {
@@ -62,8 +64,11 @@ export default function SessionsPage() {
   const { sessions, projects, addSession } = useData()
   const { currentUser } = useAuth()
   const canCreate = canPerformAction(currentUser, "CREATE_SESSION")
+  const canDelete = canPerformAction(currentUser, "DELETE_SESSION")
 
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [sessionToDelete, setSessionToDelete] = useState<typeof sessions[number] | null>(null)
   const [newCommitteeType, setNewCommitteeType] = useState<CommitteeType>("DIVISIONAL")
   const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0])
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
@@ -221,6 +226,20 @@ export default function SessionsPage() {
                         <Icon className="size-3 mr-1" />
                         {config.label}
                       </Badge>
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-muted-foreground hover:text-destructive"
+                          aria-label={`Delete ${COMMITTEE_TYPE_LABELS[session.committeeType]} session on ${new Date(session.date).toLocaleDateString("en-ZA", { day: "numeric", month: "long", year: "numeric" })}`}
+                          onClick={() => {
+                            setSessionToDelete(session)
+                            setDeleteDialogOpen(true)
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
@@ -261,6 +280,17 @@ export default function SessionsPage() {
             )
           })}
         </div>
+      )}
+
+      {sessionToDelete && (
+        <DeleteSessionDialog
+          session={sessionToDelete}
+          open={deleteDialogOpen}
+          onOpenChange={(open) => {
+            setDeleteDialogOpen(open)
+            if (!open) setSessionToDelete(null)
+          }}
+        />
       )}
     </div>
   )

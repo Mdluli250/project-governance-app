@@ -131,6 +131,7 @@ export function canPerformAction(
     | "CREATE_SESSION"
     | "MANAGE_USERS"
     | "EDIT_COMPLETED_CHECKLIST"
+    | "DELETE_SESSION"
 ): boolean {
   switch (action) {
     case "EDIT_PROJECT":
@@ -151,6 +152,7 @@ export function canPerformAction(
     case "VIEW_ALL_PROJECTS":
       return ["POC_CHAIR", "ADMIN"].includes(user.role)
     case "CREATE_SESSION":
+    case "DELETE_SESSION":
       return user.role === "POC_CHAIR" || user.role === "ADMIN"
     default:
       return false

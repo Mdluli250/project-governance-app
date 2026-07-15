@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
 // ── POST: Persist a mutation ───────────────────────────────
 const VALID_ENTITIES = ["project", "action", "review", "risk", "audit", "kda", "session"] as const
-const VALID_ACTIONS = ["insert", "update", "upsert"] as const
+const VALID_ACTIONS = ["insert", "update", "upsert", "delete"] as const
 
 // Valid enum values (sourced from PostgreSQL migration ENUMs)
 const VALID_ROLES = ['PM', 'POC_CHAIR', 'POC_MEMBER', 'ADMIN'] as const
@@ -386,7 +386,13 @@ export async function POST(req: NextRequest) {
         break
       }
       case "session": {
-        if (action === "insert") {
+        if (action === "delete") {
+          const existing = await prisma.pocSession.findUnique({ where: { id: data.id as string } })
+          if (!existing) {
+            return NextResponse.json({ error: "Session not found" }, { status: 404 })
+          }
+          await prisma.pocSession.delete({ where: { id: data.id as string } })
+        } else if (action === "insert") {
           const projectIds = (data.projectIds ?? []) as string[]
           await prisma.pocSession.create({
             data: {

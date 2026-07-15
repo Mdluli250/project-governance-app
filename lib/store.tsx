@@ -341,6 +341,7 @@ interface DataContextType {
   updateRisk: (id: string, updates: Partial<RiskIssue>) => void
   addSession: (session: POCSession) => void
   updateSession: (id: string, updates: Partial<POCSession>) => void
+  deleteSession: (id: string) => Promise<boolean>
   addAuditEntry: (entry: Omit<AuditEntry, "id" | "timestamp">) => void
   getProjectById: (id: string) => Project | undefined
   getReviewsForProject: (projectId: string) => POCReview[]
@@ -605,6 +606,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
     persistEntity("session", "update", { id, ...updates } as unknown as Record<string, unknown>)
   }, [])
 
+  const deleteSession = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ entity: "session", action: "delete", data: { id } }),
+      })
+      if (!res.ok) {
+        return false
+      }
+      setSessions((prev) => prev.filter((s) => s.id !== id))
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
   const getProjectById = useCallback(
     (id: string) => projects.find((p) => p.id === id),
     [projects]
@@ -664,6 +682,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         updateRisk,
         addSession,
         updateSession,
+        deleteSession,
         addAuditEntry,
         getProjectById,
         getReviewsForProject,
