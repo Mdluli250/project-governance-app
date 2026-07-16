@@ -228,9 +228,9 @@ export default function SessionsPage() {
                       </Badge>
                       {canDelete && (
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-muted-foreground hover:text-destructive"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
                           aria-label={`Delete ${COMMITTEE_TYPE_LABELS[session.committeeType]} session on ${new Date(session.date).toLocaleDateString("en-ZA", { day: "numeric", month: "long", year: "numeric" })}`}
                           onClick={() => {
                             setSessionToDelete(session)
@@ -238,6 +238,7 @@ export default function SessionsPage() {
                           }}
                         >
                           <Trash2 className="size-4" />
+                          Delete
                         </Button>
                       )}
                     </div>
