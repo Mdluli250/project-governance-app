@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react"
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react"
 import type {
   User,
   Project,
@@ -12,6 +12,15 @@ import type {
   POCSession,
   AuditType,
 } from "./types"
+import type {
+  DashboardSummaryResponse,
+  PortfolioProject,
+  PortfolioResponse,
+  ProjectDetailResponse,
+  SessionsListResponse,
+  SessionDetailResponse,
+  AuditPageResponse,
+} from "./api-types"
 import { loadUsers, createUser as createUserDb, updateUserDb, deleteUserDb } from "./users-db"
 import { setAuthToken, clearAuthToken, getAuthHeaders } from "./auth-token"
 
@@ -26,7 +35,17 @@ import {
   saveChecklistTemplate,
   saveActionCategories,
 } from "./config-db"
-import { loadAllData, persistEntity } from "./data-db"
+import {
+  loadAllData,
+  persistEntity,
+  fetchDashboardSummary,
+  fetchPortfolio,
+  fetchProjectDetail,
+  fetchSessions,
+  fetchSessionDetail,
+  fetchAuditPage,
+} from "./data-db"
+import { createLoadingManager, type LoadingManager } from "./loading-state"
 
 // ── Config types ───────────────────────────────────────────
 export interface StrategicObjective {
@@ -313,6 +332,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 // ── Data Context ───────────────────────────────────────────
 interface DataContextType {
+  // Existing monolithic state (kept for backwards compat during migration)
   projects: Project[]
   reviews: POCReview[]
   actions: Action[]
@@ -321,6 +341,36 @@ interface DataContextType {
   risks: RiskIssue[]
   sessions: POCSession[]
   dataLoaded: boolean
+
+  // Per-page data fetching (new)
+  dashboardSummary: DashboardSummaryResponse | null
+  loadDashboard: () => Promise<void>
+
+  portfolioProjects: PortfolioProject[] | null
+  portfolioActionSummaries: Record<string, { open: number; overdue: number }> | null
+  portfolioReviewSummaries: Record<string, { nextReviewDate: string | null }> | null
+  loadPortfolio: () => Promise<void>
+
+  projectDetailCache: Map<string, ProjectDetailResponse>
+  loadProjectDetail: (id: string) => Promise<void>
+
+  sessionsData: SessionsListResponse | null
+  loadSessions: () => Promise<void>
+  loadSessionDetail: (id: string) => Promise<SessionDetailResponse>
+
+  auditPageCache: Map<string, { entries: AuditEntry[]; nextCursor: string | null }>
+  loadAuditPage: (projectId: string, cursor?: string) => Promise<AuditPageResponse>
+
+  // Loading and error states
+  loadingStates: Record<string, boolean>
+  errors: Record<string, string | null>
+  retry: (key: string) => void
+
+  // Cache invalidation
+  invalidateDashboard: () => void
+  invalidatePortfolio: () => void
+  invalidateProjectDetail: (id: string) => void
+
   // Config state
   clusters: string[]
   impactAreas: Record<string, string[]>
@@ -380,6 +430,181 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<POCSession[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
   const dataLoadDone = useRef(false)
+
+  // ── Per-page state slices (new, additive) ──────────────────
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummaryResponse | null>(null)
+  const [portfolioProjects, setPortfolioProjects] = useState<PortfolioProject[] | null>(null)
+  const [portfolioActionSummaries, setPortfolioActionSummaries] = useState<Record<string, { open: number; overdue: number }> | null>(null)
+  const [portfolioReviewSummaries, setPortfolioReviewSummaries] = useState<Record<string, { nextReviewDate: string | null }> | null>(null)
+  const [projectDetailCache, setProjectDetailCache] = useState<Map<string, ProjectDetailResponse>>(new Map())
+  const [sessionsData, setSessionsData] = useState<SessionsListResponse | null>(null)
+  const [auditPageCache, setAuditPageCache] = useState<Map<string, { entries: AuditEntry[]; nextCursor: string | null }>>(new Map())
+
+  // ── Loading state manager integration ──────────────────────
+  const loadingManagerRef = useRef<LoadingManager | null>(null)
+  if (!loadingManagerRef.current) {
+    loadingManagerRef.current = createLoadingManager()
+  }
+  const loadingManager = loadingManagerRef.current
+
+  // Subscribe to loading manager state changes to trigger React re-renders
+  const loadingStates = useSyncExternalStore(
+    loadingManager.subscribe,
+    loadingManager.getLoadingStates,
+    loadingManager.getLoadingStates
+  )
+  const errors = useSyncExternalStore(
+    loadingManager.subscribe,
+    loadingManager.getErrors,
+    loadingManager.getErrors
+  )
+
+  // Stale markers for cache invalidation
+  const staleCachesRef = useRef<Set<string>>(new Set())
+
+  // Cleanup loading manager on unmount
+  useEffect(() => {
+    return () => {
+      loadingManagerRef.current?.destroy()
+    }
+  }, [])
+
+  // ── Per-page loading methods ───────────────────────────────
+
+  const loadDashboard = useCallback(async () => {
+    const key = "dashboard"
+    const opId = loadingManager.startLoading(key)
+    try {
+      const data = await fetchDashboardSummary()
+      setDashboardSummary(data)
+      staleCachesRef.current.delete(key)
+      loadingManager.endLoading(key, opId)
+    } catch (err) {
+      loadingManager.setError(key, opId, err instanceof Error ? err.message : "Failed to load dashboard")
+    }
+  }, [loadingManager])
+
+  const loadPortfolio = useCallback(async () => {
+    const key = "portfolio"
+    const opId = loadingManager.startLoading(key)
+    try {
+      const data: PortfolioResponse = await fetchPortfolio()
+      setPortfolioProjects(data.projects)
+      setPortfolioActionSummaries(data.actionSummaries)
+      setPortfolioReviewSummaries(data.reviewSummaries)
+      staleCachesRef.current.delete(key)
+      loadingManager.endLoading(key, opId)
+    } catch (err) {
+      loadingManager.setError(key, opId, err instanceof Error ? err.message : "Failed to load portfolio")
+    }
+  }, [loadingManager])
+
+  const loadProjectDetail = useCallback(async (id: string) => {
+    const key = `project-detail-${id}`
+    // Check cache: skip fetch if data exists and isn't stale
+    if (projectDetailCache.has(id) && !staleCachesRef.current.has(key)) {
+      return
+    }
+    const opId = loadingManager.startLoading(key)
+    try {
+      const data = await fetchProjectDetail(id)
+      setProjectDetailCache((prev) => {
+        const next = new Map(prev)
+        next.set(id, data)
+        return next
+      })
+      staleCachesRef.current.delete(key)
+      loadingManager.endLoading(key, opId)
+    } catch (err) {
+      loadingManager.setError(key, opId, err instanceof Error ? err.message : "Failed to load project detail")
+    }
+  }, [loadingManager, projectDetailCache])
+
+  const loadSessions = useCallback(async () => {
+    const key = "sessions"
+    const opId = loadingManager.startLoading(key)
+    try {
+      const data = await fetchSessions()
+      setSessionsData(data)
+      staleCachesRef.current.delete(key)
+      loadingManager.endLoading(key, opId)
+    } catch (err) {
+      loadingManager.setError(key, opId, err instanceof Error ? err.message : "Failed to load sessions")
+    }
+  }, [loadingManager])
+
+  const loadSessionDetailFn = useCallback(async (id: string): Promise<SessionDetailResponse> => {
+    const key = `session-detail-${id}`
+    const opId = loadingManager.startLoading(key)
+    try {
+      const data = await fetchSessionDetail(id)
+      loadingManager.endLoading(key, opId)
+      return data
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load session detail"
+      loadingManager.setError(key, opId, msg)
+      throw err
+    }
+  }, [loadingManager])
+
+  const loadAuditPageFn = useCallback(async (projectId: string, cursor?: string): Promise<AuditPageResponse> => {
+    const key = `audit-${projectId}`
+    const opId = loadingManager.startLoading(key)
+    try {
+      const data = await fetchAuditPage(projectId, cursor)
+      setAuditPageCache((prev) => {
+        const next = new Map(prev)
+        const existing = next.get(projectId)
+        if (cursor && existing) {
+          // Append new entries for "Load More" behavior
+          next.set(projectId, {
+            entries: [...existing.entries, ...data.entries],
+            nextCursor: data.nextCursor,
+          })
+        } else {
+          // First page or refresh
+          next.set(projectId, {
+            entries: data.entries,
+            nextCursor: data.nextCursor,
+          })
+        }
+        return next
+      })
+      loadingManager.endLoading(key, opId)
+      return data
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load audit page"
+      loadingManager.setError(key, opId, msg)
+      throw err
+    }
+  }, [loadingManager])
+
+  // ── Cache invalidation ─────────────────────────────────────
+
+  const invalidateDashboard = useCallback(() => {
+    staleCachesRef.current.add("dashboard")
+  }, [])
+
+  const invalidatePortfolio = useCallback(() => {
+    staleCachesRef.current.add("portfolio")
+  }, [])
+
+  const invalidateProjectDetail = useCallback((id: string) => {
+    staleCachesRef.current.add(`project-detail-${id}`)
+  }, [])
+
+  // ── Retry support ──────────────────────────────────────────
+
+  const retryFn = useCallback((key: string) => {
+    loadingManager.retry(key)
+  }, [loadingManager])
+
+  // Register fetch functions for retry support
+  useEffect(() => {
+    loadingManager.registerFetch("dashboard", loadDashboard)
+    loadingManager.registerFetch("portfolio", loadPortfolio)
+    loadingManager.registerFetch("sessions", loadSessions)
+  }, [loadingManager, loadDashboard, loadPortfolio, loadSessions])
 
   // ── Load all data from Supabase when authenticated ─
   useEffect(() => {
@@ -571,59 +796,90 @@ export function DataProvider({ children }: { children: ReactNode }) {
         )
       )
       persistEntity("project", "upsert", { id, ...updates, lastUpdated } as unknown as Record<string, unknown>)
+      invalidateDashboard()
+      invalidatePortfolio()
+      invalidateProjectDetail(id)
     },
-    []
+    [invalidateDashboard, invalidatePortfolio, invalidateProjectDetail]
   )
 
   const addProject = useCallback((project: Project) => {
     setProjects((prev) => [...prev, project])
     persistEntity("project", "upsert", project as unknown as Record<string, unknown>)
-  }, [])
+    invalidateDashboard()
+    invalidatePortfolio()
+  }, [invalidateDashboard, invalidatePortfolio])
 
   const addAction = useCallback((action: Action) => {
     setActions((prev) => [...prev, action])
     persistEntity("action", "insert", action as unknown as Record<string, unknown>)
-  }, [])
+    invalidateDashboard()
+    invalidatePortfolio()
+    invalidateProjectDetail(action.projectId)
+  }, [invalidateDashboard, invalidatePortfolio, invalidateProjectDetail])
 
   const updateAction = useCallback((id: string, updates: Partial<Action>) => {
     setActions((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)))
     persistEntity("action", "update", { id, ...updates } as unknown as Record<string, unknown>)
-  }, [])
+    invalidateDashboard()
+    invalidatePortfolio()
+    // Invalidate project detail if projectId is available in updates
+    if (updates.projectId) {
+      invalidateProjectDetail(updates.projectId)
+    }
+  }, [invalidateDashboard, invalidatePortfolio, invalidateProjectDetail])
 
   const addReview = useCallback((review: POCReview) => {
     setReviews((prev) => [...prev, review])
     persistEntity("review", "insert", review as unknown as Record<string, unknown>)
-  }, [])
+    invalidateDashboard()
+    invalidatePortfolio()
+    invalidateProjectDetail(review.projectId)
+  }, [invalidateDashboard, invalidatePortfolio, invalidateProjectDetail])
 
   const updateReview = useCallback((id: string, updates: Partial<POCReview>) => {
     setReviews((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)))
     persistEntity("review", "update", { id, ...updates } as unknown as Record<string, unknown>)
-  }, [])
+    invalidateDashboard()
+    invalidatePortfolio()
+    if (updates.projectId) {
+      invalidateProjectDetail(updates.projectId)
+    }
+  }, [invalidateDashboard, invalidatePortfolio, invalidateProjectDetail])
 
   const addKDADecision = useCallback((decision: KDADecision) => {
     setKDADecisions((prev) => [...prev, decision])
     persistEntity("kda", "insert", decision as unknown as Record<string, unknown>)
-  }, [])
+    invalidateProjectDetail(decision.projectId)
+  }, [invalidateProjectDetail])
 
   const addRisk = useCallback((risk: RiskIssue) => {
     setRisks((prev) => [...prev, risk])
     persistEntity("risk", "insert", risk as unknown as Record<string, unknown>)
-  }, [])
+    invalidateProjectDetail(risk.projectId)
+  }, [invalidateProjectDetail])
 
   const updateRisk = useCallback((id: string, updates: Partial<RiskIssue>) => {
     setRisks((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)))
     persistEntity("risk", "update", { id, ...updates } as unknown as Record<string, unknown>)
-  }, [])
+    if (updates.projectId) {
+      invalidateProjectDetail(updates.projectId)
+    }
+  }, [invalidateProjectDetail])
 
   const addSession = useCallback((session: POCSession) => {
     setSessions((prev) => [...prev, session])
     persistEntity("session", "insert", session as unknown as Record<string, unknown>)
-  }, [])
+    invalidateDashboard()
+    invalidatePortfolio()
+  }, [invalidateDashboard, invalidatePortfolio])
 
   const updateSession = useCallback((id: string, updates: Partial<POCSession>) => {
     setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)))
     persistEntity("session", "update", { id, ...updates } as unknown as Record<string, unknown>)
-  }, [])
+    invalidateDashboard()
+    invalidatePortfolio()
+  }, [invalidateDashboard, invalidatePortfolio])
 
   const deleteSession = useCallback(async (id: string): Promise<boolean> => {
     try {
@@ -636,11 +892,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return false
       }
       setSessions((prev) => prev.filter((s) => s.id !== id))
+      invalidateDashboard()
+      invalidatePortfolio()
       return true
     } catch {
       return false
     }
-  }, [])
+  }, [invalidateDashboard, invalidatePortfolio])
 
   const getProjectById = useCallback(
     (id: string) => projects.find((p) => p.id === id),
@@ -682,6 +940,29 @@ export function DataProvider({ children }: { children: ReactNode }) {
         risks,
         sessions,
         dataLoaded,
+        // Per-page state (new)
+        dashboardSummary,
+        loadDashboard,
+        portfolioProjects,
+        portfolioActionSummaries,
+        portfolioReviewSummaries,
+        loadPortfolio,
+        projectDetailCache,
+        loadProjectDetail,
+        sessionsData,
+        loadSessions,
+        loadSessionDetail: loadSessionDetailFn,
+        auditPageCache,
+        loadAuditPage: loadAuditPageFn,
+        // Loading and error states
+        loadingStates,
+        errors,
+        retry: retryFn,
+        // Cache invalidation
+        invalidateDashboard,
+        invalidatePortfolio,
+        invalidateProjectDetail,
+        // Config
         clusters,
         impactAreas,
         strategicObjectives,
