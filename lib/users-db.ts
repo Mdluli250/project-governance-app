@@ -6,6 +6,10 @@ export async function loadUsers(): Promise<User[]> {
     headers: { ...getAuthHeaders() },
   })
   if (!res.ok) {
+    if (res.status === 401) {
+      // Token expired or missing — return empty, don't throw
+      return []
+    }
     const body = await res.json().catch(() => ({}))
     console.error("loadUsers failed:", res.status, body)
     throw new Error(body.error || `Failed to load users (${res.status})`)

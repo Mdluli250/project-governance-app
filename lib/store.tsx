@@ -119,6 +119,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem("gov_auth_token")
     if (stored && token) {
       try {
+        // Check if token is expired by decoding the payload
+        const payload = JSON.parse(atob(token.split(".")[1]))
+        if (payload.exp && payload.exp * 1000 < Date.now()) {
+          // Token expired — clear session and force re-login
+          localStorage.removeItem("gov_session")
+          localStorage.removeItem("gov_auth_token")
+          return
+        }
         const user = JSON.parse(stored) as User
         setCurrentUser(user)
         setIsAuthenticated(true)
