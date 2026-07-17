@@ -387,6 +387,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated) return
     dataLoadDone.current = true
 
+    let retryCount = 0
+    const maxRetries = 3
+
     async function init() {
       try {
         const allData = await loadAllData()
@@ -405,10 +408,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
         }
         setKDADecisions(allData.kdaDecisions as KDADecision[])
         setSessions(allData.sessions as POCSession[])
-      } catch (err) {
-        console.error("Failed to load data from Supabase, keeping initial state:", err)
-      } finally {
         setDataLoaded(true)
+      } catch (err) {
+        console.error("Failed to load data:", err)
+        retryCount++
+        if (retryCount <= maxRetries) {
+          console.log(`Retrying data load (attempt ${retryCount}/${maxRetries})...`)
+          setTimeout(init, retryCount * 2000)
+        } else {
+          setDataLoaded(true) // Allow UI to render even if data load fails after retries
+        }
       }
     }
     init()
@@ -441,24 +450,34 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (initialLoadDone.current) return
     if (!isAuthenticated) return
     initialLoadDone.current = true
-    loadAllConfig()
-      .then((cfg) => {
-        // Always apply DB config -- no fallback to hardcoded constants
-        setClusters(cfg.clusters)
-        clustersRef.current = cfg.clusters
-        setImpactAreas(cfg.impactAreas)
-        impactAreasRef.current = cfg.impactAreas
-        setStrategicObjectives(cfg.strategicObjectives)
-        setChecklistTemplate(cfg.checklistTemplate)
-        setActionCategories(cfg.actionCategories)
-        setConfigLoaded(true)
-      })
-      .catch((err) => {
-        console.error("Failed to load config from Supabase:", err)
-        // IMPORTANT: Do NOT set configLoaded = true on failure.
-        // This keeps the persist guards locked, preventing empty state
-        // from overwriting real data in the database.
-      })
+
+    let retryCount = 0
+    const maxRetries = 3
+
+    function attemptLoad() {
+      loadAllConfig()
+        .then((cfg) => {
+          // Always apply DB config -- no fallback to hardcoded constants
+          setClusters(cfg.clusters)
+          clustersRef.current = cfg.clusters
+          setImpactAreas(cfg.impactAreas)
+          impactAreasRef.current = cfg.impactAreas
+          setStrategicObjectives(cfg.strategicObjectives)
+          setChecklistTemplate(cfg.checklistTemplate)
+          setActionCategories(cfg.actionCategories)
+          setConfigLoaded(true)
+        })
+        .catch((err) => {
+          console.error("Failed to load config:", err)
+          retryCount++
+          if (retryCount <= maxRetries) {
+            console.log(`Retrying config load (attempt ${retryCount}/${maxRetries})...`)
+            setTimeout(attemptLoad, retryCount * 2000)
+          }
+        })
+    }
+
+    attemptLoad()
   }, [isAuthenticated])
 
   // Debounced cluster save to handle rapid setClusters + setImpactAreas calls
