@@ -15,7 +15,7 @@ export async function loadUsers(): Promise<User[]> {
 
 export async function createUser(
   user: Omit<User, "id">
-): Promise<User> {
+): Promise<User & { temporaryPassword?: string }> {
   const res = await fetch("/api/users", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },

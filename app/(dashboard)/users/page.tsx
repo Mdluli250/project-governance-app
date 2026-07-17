@@ -86,6 +86,7 @@ export default function UsersPage() {
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [form, setForm] = useState<UserFormState>(emptyForm)
+  const [createdPassword, setCreatedPassword] = useState<{ name: string; password: string } | null>(null)
 
   const formImpactAreas = form.cluster ? allImpactAreas[form.cluster] ?? [] : []
   const userToDelete = deleteConfirmId ? users.find((u) => u.id === deleteConfirmId) : null
@@ -108,6 +109,9 @@ export default function UsersPage() {
       impactArea: form.impactArea || undefined,
     })
     if (created) {
+      if (created.temporaryPassword) {
+        setCreatedPassword({ name: form.name.trim(), password: created.temporaryPassword })
+      }
       toast.success(`User "${form.name.trim()}" added successfully.`)
     } else {
       toast.error("Failed to add user.")
@@ -407,6 +411,33 @@ export default function UsersPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Temporary Password Dialog */}
+      <AlertDialog open={!!createdPassword} onOpenChange={(open) => { if (!open) setCreatedPassword(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>User Created Successfully</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="flex flex-col gap-3">
+                <p>
+                  <strong>{createdPassword?.name}</strong> has been created with a temporary password. Share this with them — they will be required to change it on first login.
+                </p>
+                <div className="rounded-md bg-muted p-3 font-mono text-sm text-center select-all">
+                  {createdPassword?.password}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Copy this password now. It cannot be retrieved again.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setCreatedPassword(null)}>
+              Done
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

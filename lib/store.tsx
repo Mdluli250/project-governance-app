@@ -69,7 +69,7 @@ interface AuthContextType {
   resetPassword: (userId: string) => Promise<{ success: boolean; error?: string }>
   users: User[]
   usersLoaded: boolean
-  addUser: (user: Omit<User, "id">) => Promise<User | null>
+  addUser: (user: Omit<User, "id">) => Promise<(User & { temporaryPassword?: string }) | null>
   updateUser: (id: string, updates: Partial<User>) => void
   deleteUser: (id: string) => void
 }
@@ -270,7 +270,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem("gov_session")
   }, [])
 
-  const addUser = useCallback(async (user: Omit<User, "id">): Promise<User | null> => {
+  const addUser = useCallback(async (user: Omit<User, "id">): Promise<(User & { temporaryPassword?: string }) | null> => {
     try {
       const created = await createUserDb(user)
       setUsers((prev) => [...prev, created])
