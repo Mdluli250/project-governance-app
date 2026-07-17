@@ -635,7 +635,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setSessions(allData.sessions as POCSession[])
         setDataLoaded(true)
       } catch (err) {
-        console.error("Failed to load data:", err)
+        const errMsg = err instanceof Error ? err.message : String(err)
+        console.error("Failed to load data:", errMsg)
+        // Don't retry on auth errors — the per-page endpoints will handle loading
+        if (errMsg.includes("Unauthorized") || errMsg.includes("401")) {
+          setDataLoaded(true)
+          return
+        }
         retryCount++
         if (retryCount <= maxRetries) {
           console.log(`Retrying data load (attempt ${retryCount}/${maxRetries})...`)
