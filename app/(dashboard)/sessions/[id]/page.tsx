@@ -5,7 +5,7 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { useData, useAuth } from "@/lib/store"
 import { canPerformAction } from "@/lib/rules"
-import { COMMITTEE_TYPE_LABELS, REVIEW_OUTCOMES, CHECKLIST_TEMPLATE } from "@/lib/constants"
+import { COMMITTEE_TYPE_LABELS, REVIEW_OUTCOMES } from "@/lib/constants"
 import type {
   Project,
   ChecklistItem,
@@ -81,6 +81,7 @@ export default function SessionWorkspacePage({
   const {
     sessions,
     projects,
+    checklistTemplate,
     getReviewsForProject,
     getActionsForProject,
     getRisksForProject,
@@ -391,7 +392,7 @@ function ProjectReviewWorkspace({
 
   // Local checklist state
   const [checklist, setChecklist] = useState<ChecklistItem[]>(() =>
-    CHECKLIST_TEMPLATE.flatMap((section) =>
+    checklistTemplate.flatMap((section) =>
       section.items.map((item, idx) => ({
         id: `ws-${project.id}-${section.section}-${idx}`,
         section: section.section,

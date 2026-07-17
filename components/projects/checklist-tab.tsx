@@ -2,8 +2,7 @@
 
 import { useState, useCallback, useRef } from "react"
 import type { ChecklistItem, ChecklistResponse } from "@/lib/types"
-import { CHECKLIST_TEMPLATE } from "@/lib/constants"
-import { useAuth } from "@/lib/store"
+import { useAuth, useData } from "@/lib/store"
 import { canPerformAction } from "@/lib/rules"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -29,10 +28,11 @@ interface ChecklistTabProps {
 
 export function ChecklistTab({ checklist, projectTitle, readOnly = false, onUpdate }: ChecklistTabProps) {
   const { currentUser } = useAuth()
+  const { checklistTemplate } = useData()
   const canEdit = !readOnly && canPerformAction(currentUser, "COMPLETE_CHECKLIST")
   const printRef = useRef<HTMLDivElement>(null)
 
-  const sections = CHECKLIST_TEMPLATE.map((tmpl) => ({
+  const sections = checklistTemplate.map((tmpl) => ({
     section: tmpl.section,
     items: checklist.filter((item) => item.section === tmpl.section),
   }))
