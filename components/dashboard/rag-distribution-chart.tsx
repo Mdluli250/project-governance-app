@@ -5,6 +5,7 @@ import type { Project, RAGStatus } from "@/lib/types"
 import { RAG_DIMENSION_KEYS } from "@/lib/types"
 import { DIMENSION_LABELS } from "@/lib/constants"
 import { countRAGByDimension } from "@/lib/rules"
+import { useData } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   PieChart,
@@ -27,19 +28,28 @@ const RAG_COLORS: Record<RAGStatus, string> = {
 
 interface RAGDistributionChartProps {
   projects: Project[]
+  ragOverride?: { RED: number; AMBER: number; GREEN: number }
 }
 
-export function RAGDistributionChart({ projects }: RAGDistributionChartProps) {
+export function RAGDistributionChart({ projects, ragOverride }: RAGDistributionChartProps) {
+  const { dashboardSummary } = useData()
   const ragCounts = useMemo(() => countRAGByDimension(projects), [projects])
+
+  // Priority: explicit prop override > dashboardSummary from context > compute from projects
+  const effectiveRagOverride = useMemo(() => {
+    if (ragOverride) return ragOverride
+    if (dashboardSummary) return dashboardSummary.ragDistribution.overall
+    return undefined
+  }, [ragOverride, dashboardSummary])
 
   const overallPieData = useMemo(
     () =>
       (["GREEN", "AMBER", "RED"] as RAGStatus[]).map((status) => ({
         name: status === "RED" ? "Red" : status === "AMBER" ? "Amber" : "Green",
-        value: ragCounts.overall?.[status] ?? 0,
+        value: effectiveRagOverride ? effectiveRagOverride[status] : (ragCounts.overall?.[status] ?? 0),
         color: RAG_COLORS[status],
       })),
-    [ragCounts]
+    [ragCounts, effectiveRagOverride]
   )
 
   const dimensionBarData = useMemo(

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useData, useAuth } from "@/lib/store"
 import { canPerformAction } from "@/lib/rules"
@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   CalendarCheck,
   Plus,
@@ -61,10 +62,17 @@ const statusConfig: Record<string, { label: string; icon: typeof Clock; classNam
 let _sessionCounter = 100
 
 export default function SessionsPage() {
-  const { sessions, projects, addSession } = useData()
+  const { sessions, projects, addSession, loadSessions, sessionsData, loadingStates } = useData()
   const { currentUser } = useAuth()
   const canCreate = canPerformAction(currentUser, "CREATE_SESSION")
   const canDelete = canPerformAction(currentUser, "DELETE_SESSION")
+
+  // Pre-load sessions via the per-page endpoint on mount
+  useEffect(() => {
+    loadSessions()
+  }, [loadSessions])
+
+  const isLoadingSessions = loadingStates["sessions"] ?? false
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -73,7 +81,19 @@ export default function SessionsPage() {
   const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0])
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
 
-  const sorted = [...sessions].sort(
+  // Use sessionsData from per-page endpoint when available, falling back to existing sessions array
+  const effectiveSessions = sessionsData?.sessions
+    ? sessionsData.sessions.map((s) => ({
+        id: s.id,
+        date: s.date,
+        committeeType: s.committeeType,
+        projectIds: s.projectIds,
+        status: s.status,
+        attendees: s.attendees,
+      }))
+    : sessions
+
+  const sorted = [...effectiveSessions].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   )
 
@@ -199,7 +219,31 @@ export default function SessionsPage() {
         )}
       </div>
 
-      {sorted.length === 0 ? (
+      {isLoadingSessions && sorted.length === 0 ? (
+        <div className="grid gap-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-5 w-48" />
+                  <Skeleton className="h-6 w-24" />
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex items-center gap-4">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-28" />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-5 w-24" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : sorted.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <CalendarCheck className="size-12 text-muted-foreground/30 mb-4" />
           <p className="text-muted-foreground">No POC sessions scheduled.</p>

@@ -1,6 +1,6 @@
 "use client"
 
-import { use } from "react"
+import { use, useEffect } from "react"
 import { notFound } from "next/navigation"
 import { useData, useAuth } from "@/lib/store"
 import { canPerformAction, getNextPOCReviewDue, getActionCounts } from "@/lib/rules"
@@ -15,6 +15,8 @@ import { ReviewsTab } from "@/components/projects/reviews-tab"
 import { ChecklistTab } from "@/components/projects/checklist-tab"
 import { RisksTab } from "@/components/projects/risks-tab"
 import { ActionsTab } from "@/components/projects/actions-tab"
+import { AuditTab } from "@/components/projects/audit-tab"
+import { Skeleton } from "@/components/ui/skeleton"
 
 import {
   LayoutList,
@@ -25,6 +27,8 @@ import {
   Shield,
   Calendar,
   AlertCircle,
+  History,
+  Loader2,
 } from "lucide-react"
 
 export default function ProjectDetailPage({
@@ -38,20 +42,63 @@ export default function ProjectDetailPage({
     getReviewsForProject,
     getActionsForProject,
     getRisksForProject,
+    getAuditForProject,
     updateProject,
     updateReview,
     addAuditEntry,
     reviews: allReviews,
+    loadProjectDetail,
+    projectDetailCache,
+    loadingStates,
   } = useData()
   const { currentUser } = useAuth()
 
-  const project = getProjectById(id)
+  // Trigger per-page fetch on mount to pre-populate cache for faster subsequent visits
+  useEffect(() => {
+    loadProjectDetail(id)
+  }, [id, loadProjectDetail])
+
+  const isLoading = loadingStates[`project-detail-${id}`] ?? false
+
+  // Use cached detail data when available, falling back to existing monolithic arrays
+  const cachedDetail = projectDetailCache.get(id)
+
+  const project = cachedDetail?.project ?? getProjectById(id)
+  if (!project && !isLoading) return notFound()
+
+  // Show skeleton while loading if no data is available yet
+  if (!project && isLoading) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-6 w-16" />
+            <Skeleton className="h-6 w-20" />
+          </div>
+          <Skeleton className="h-7 w-64" />
+          <Skeleton className="h-4 w-96" />
+          <div className="flex gap-4">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <div className="flex gap-1">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-24" />
+          ))}
+        </div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    )
+  }
+
+  // At this point, project is guaranteed to be defined
   if (!project) return notFound()
 
-  const reviews = getReviewsForProject(id)
-  const actions = getActionsForProject(id)
-
-  const risks = getRisksForProject(id)
+  const reviews = cachedDetail?.reviews ?? getReviewsForProject(id)
+  const actions = cachedDetail?.actions ?? getActionsForProject(id)
+  const risks = cachedDetail?.risks ?? getRisksForProject(id)
+  const auditEntries = getAuditForProject(id)
 
   const lastReviewDate = reviews.length > 0 ? reviews[0].reviewDate : undefined
   const nextPOCDue = getNextPOCReviewDue(project, lastReviewDate)
@@ -161,6 +208,10 @@ export default function ProjectDetailPage({
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="audit" className="gap-1.5 text-xs">
+            <History className="size-3.5" />
+            <span className="hidden sm:inline">Audit</span>
+          </TabsTrigger>
 
 
         </TabsList>
@@ -187,6 +238,9 @@ export default function ProjectDetailPage({
         </TabsContent>
         <TabsContent value="actions" className="mt-4">
           <ActionsTab projectId={id} actions={actions} />
+        </TabsContent>
+        <TabsContent value="audit" className="mt-4">
+          <AuditTab entries={auditEntries} projectId={id} />
         </TabsContent>
 
 

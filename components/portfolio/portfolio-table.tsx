@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import Link from "next/link"
 import type { Project, Action, POCReview } from "@/lib/types"
+import type { PortfolioProject } from "@/lib/api-types"
 import { getNextPOCReviewDue, getActionCounts } from "@/lib/rules"
 import { useAuth } from "@/lib/store"
 import {
@@ -23,9 +24,11 @@ type SortKey = "shortTitle" | "classification" | "cluster" | "pm" | "overall" | 
 type SortDir = "asc" | "desc"
 
 interface PortfolioTableProps {
-  projects: Project[]
+  projects: (Project | PortfolioProject)[]
   actions: Action[]
   reviews: POCReview[]
+  portfolioActionSummaries?: Record<string, { open: number; overdue: number }> | null
+  portfolioReviewSummaries?: Record<string, { nextReviewDate: string | null }> | null
   sortKey: SortKey
   sortDir: SortDir
   onSort: (key: SortKey) => void
@@ -35,6 +38,8 @@ export function PortfolioTable({
   projects,
   actions,
   reviews,
+  portfolioActionSummaries,
+  portfolioReviewSummaries,
   sortKey,
   sortDir,
   onSort,
@@ -43,21 +48,47 @@ export function PortfolioTable({
 
   const enriched = useMemo(() => {
     return projects.map((p) => {
-      const lastReview = reviews
-        .filter((r) => r.projectId === p.id)
-        .sort((a, b) => b.reviewDate.localeCompare(a.reviewDate))[0]
-      const nextReview = getNextPOCReviewDue(p, lastReview?.reviewDate)
-      const { open, overdue } = getActionCounts(p.id, actions)
-      const pm = allUsers.find((u) => u.id === p.pmId)
+      // Use portfolioActionSummaries when available, otherwise compute from actions array
+      let open: number
+      let overdue: number
+      if (portfolioActionSummaries && portfolioActionSummaries[p.id]) {
+        open = portfolioActionSummaries[p.id].open
+        overdue = portfolioActionSummaries[p.id].overdue
+      } else {
+        const counts = getActionCounts(p.id, actions)
+        open = counts.open
+        overdue = counts.overdue
+      }
+
+      // Use portfolioReviewSummaries when available, otherwise compute from reviews array
+      let nextReview: string
+      if (portfolioReviewSummaries && portfolioReviewSummaries[p.id]) {
+        nextReview = portfolioReviewSummaries[p.id].nextReviewDate ?? ""
+      } else {
+        const lastReview = reviews
+          .filter((r) => r.projectId === p.id)
+          .sort((a, b) => b.reviewDate.localeCompare(a.reviewDate))[0]
+        nextReview = getNextPOCReviewDue(p as Project, lastReview?.reviewDate)
+      }
+
+      // Use pm field from PortfolioProject if available, otherwise look up from users
+      let pmName: string
+      if ("pm" in p && p.pm) {
+        pmName = p.pm.name
+      } else {
+        const pm = allUsers.find((u) => u.id === p.pmId)
+        pmName = pm?.name ?? "Unknown"
+      }
+
       return {
         ...p,
         nextReview,
         openActions: open,
         overdueActions: overdue,
-        pmName: pm?.name ?? "Unknown",
+        pmName,
       }
     })
-  }, [projects, actions, reviews, allUsers])
+  }, [projects, actions, reviews, allUsers, portfolioActionSummaries, portfolioReviewSummaries])
 
   const sorted = useMemo(() => {
     return [...enriched].sort((a, b) => {

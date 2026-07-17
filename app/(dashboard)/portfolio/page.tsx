@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useAuth, useData } from "@/lib/store"
 import { canPerformAction } from "@/lib/rules"
 import { PortfolioTable } from "@/components/portfolio/portfolio-table"
@@ -11,6 +11,7 @@ import {
 } from "@/components/dashboard/portfolio-filters"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Search, Plus } from "lucide-react"
 
 type SortKey = "shortTitle" | "classification" | "cluster" | "pm" | "overall" | "nextReview" | "openActions" | "overdueActions"
@@ -18,7 +19,16 @@ type SortDir = "asc" | "desc"
 
 export default function PortfolioPage() {
   const { currentUser } = useAuth()
-  const { projects, actions, reviews } = useData()
+  const {
+    projects,
+    actions,
+    reviews,
+    portfolioProjects,
+    portfolioActionSummaries,
+    portfolioReviewSummaries,
+    loadPortfolio,
+    loadingStates,
+  } = useData()
   const [search, setSearch] = useState("")
   const [showNewProject, setShowNewProject] = useState(false)
   const canCreate = canPerformAction(currentUser, "EDIT_PROJECT")
@@ -31,8 +41,24 @@ export default function PortfolioPage() {
   const [sortKey, setSortKey] = useState<SortKey>("shortTitle")
   const [sortDir, setSortDir] = useState<SortDir>("asc")
 
+  // Load portfolio data on mount
+  useEffect(() => {
+    loadPortfolio()
+  }, [loadPortfolio])
+
+  const isLoading = loadingStates["portfolio"] ?? false
+
+  // Use portfolioProjects when available, falling back to existing projects array
+  const effectiveProjects = useMemo(() => {
+    if (portfolioProjects) {
+      // Map PortfolioProject[] to a shape compatible with the filter logic
+      return portfolioProjects
+    }
+    return projects
+  }, [portfolioProjects, projects])
+
   const filtered = useMemo(() => {
-    return projects.filter((p) => {
+    return effectiveProjects.filter((p) => {
       if (search && !p.shortTitle.toLowerCase().includes(search.toLowerCase()) && !p.longTitle.toLowerCase().includes(search.toLowerCase()))
         return false
       if (filters.classes.length > 0 && !filters.classes.includes(p.classification))
@@ -43,7 +69,7 @@ export default function PortfolioPage() {
         return false
       return true
     })
-  }, [projects, search, filters])
+  }, [effectiveProjects, search, filters])
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -89,17 +115,36 @@ export default function PortfolioPage() {
           <PortfolioFilters filters={filters} onFiltersChange={setFilters} />
         </div>
 
-        <PortfolioTable
-          projects={filtered}
-          actions={actions}
-          reviews={reviews}
-          sortKey={sortKey}
-          sortDir={sortDir}
-          onSort={handleSort}
-        />
+        {isLoading && !portfolioProjects ? (
+          <div className="rounded-lg border p-4 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <Skeleton className="h-4 w-[200px]" />
+                <Skeleton className="h-4 w-[60px]" />
+                <Skeleton className="h-4 w-[100px] hidden md:block" />
+                <Skeleton className="h-4 w-[80px] hidden lg:block" />
+                <Skeleton className="h-4 w-[60px]" />
+                <Skeleton className="h-4 w-[80px] hidden md:block" />
+                <Skeleton className="h-4 w-[40px]" />
+                <Skeleton className="h-4 w-[40px]" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <PortfolioTable
+            projects={filtered}
+            actions={actions}
+            reviews={reviews}
+            portfolioActionSummaries={portfolioActionSummaries}
+            portfolioReviewSummaries={portfolioReviewSummaries}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={handleSort}
+          />
+        )}
 
         <p className="text-xs text-muted-foreground text-right">
-          Showing {filtered.length} of {projects.length} projects
+          Showing {filtered.length} of {effectiveProjects.length} projects
         </p>
       </div>
     </div>

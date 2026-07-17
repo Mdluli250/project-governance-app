@@ -1,23 +1,41 @@
 "use client"
 
 import { useMemo } from "react"
-import { useData } from "@/lib/store"
 import type { Project, Classification } from "@/lib/types"
+import { useData } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FolderKanban, ShieldAlert, ShieldCheck, Shield } from "lucide-react"
 
 interface SummaryCardsProps {
   projects: Project[]
+  summaryOverride?: {
+    total: number
+    classA: number
+    classB: number
+    classC: number
+  }
 }
 
-export function SummaryCards({ projects }: SummaryCardsProps) {
+export function SummaryCards({ projects, summaryOverride }: SummaryCardsProps) {
+  const { dashboardSummary } = useData()
+
   const counts = useMemo(() => {
+    // Priority: explicit prop override > dashboardSummary from context > compute from projects
+    if (summaryOverride) return summaryOverride
+    if (dashboardSummary) {
+      return {
+        total: dashboardSummary.totalProjects,
+        classA: dashboardSummary.classificationCounts.A,
+        classB: dashboardSummary.classificationCounts.B,
+        classC: dashboardSummary.classificationCounts.C,
+      }
+    }
     const total = projects.length
     const classA = projects.filter((p) => p.classification === "A").length
     const classB = projects.filter((p) => p.classification === "B").length
     const classC = projects.filter((p) => p.classification === "C").length
     return { total, classA, classB, classC }
-  }, [projects])
+  }, [projects, summaryOverride, dashboardSummary])
 
   const cards = [
     {

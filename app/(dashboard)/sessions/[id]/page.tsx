@@ -95,11 +95,40 @@ export default function SessionWorkspacePage({
     addAction,
     addAuditEntry,
     updateSession,
+    loadSessionDetail,
+    loadingStates,
   } = useData()
   const { currentUser, users: allUsers } = useAuth()
 
+  // Pre-load session detail via the per-page endpoint on mount
+  useEffect(() => {
+    loadSessionDetail(id).catch(() => {
+      // Error is exposed via loadingStates/errors in the store
+    })
+  }, [id, loadSessionDetail])
+
+  const isLoadingDetail = loadingStates[`session-detail-${id}`] ?? false
+
   const session = sessions.find((s) => s.id === id)
-  if (!session) return notFound()
+  if (!session) {
+    if (isLoadingDetail) {
+      return (
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-7 w-64" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-24" />
+            <Skeleton className="h-8 w-24" />
+            <Skeleton className="h-8 w-24" />
+          </div>
+          <Skeleton className="h-[300px] w-full" />
+        </div>
+      )
+    }
+    return notFound()
+  }
 
   const sessionProjects = projects.filter((p) => session.projectIds.includes(p.id))
   const [currentIndex, setCurrentIndex] = useState(0)

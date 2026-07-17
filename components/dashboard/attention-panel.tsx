@@ -4,6 +4,7 @@ import { useMemo } from "react"
 import Link from "next/link"
 import type { Project, Action } from "@/lib/types"
 import { requiresAttention } from "@/lib/rules"
+import { useData } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { RAGBadge } from "@/components/rag-badge"
 import { ClassificationBadge } from "@/components/classification-badge"
@@ -16,6 +17,8 @@ interface AttentionPanelProps {
 }
 
 export function AttentionPanel({ projects, actions, reviews }: AttentionPanelProps) {
+  const { dashboardSummary } = useData()
+
   const attentionItems = useMemo(() => {
     return projects
       .map((project) => {
