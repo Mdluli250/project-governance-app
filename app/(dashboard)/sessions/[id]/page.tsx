@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useState, useMemo, useCallback, useRef } from "react"
+import { use, useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { useData, useAuth } from "@/lib/store"
@@ -24,6 +24,7 @@ import { RAGBadge } from "@/components/rag-badge"
 import { SessionPrintReport } from "@/components/sessions/session-print-report"
 import { ClassificationBadge } from "@/components/classification-badge"
 import { ChecklistTab } from "@/components/projects/checklist-tab"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -67,7 +68,12 @@ import {
   X,
   UserPlus,
   Printer,
+  Loader2,
+  Lock,
 } from "lucide-react"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import { RefreshCw } from "lucide-react"
+import { useChecklistPersistence } from "@/hooks/use-checklist-persistence"
 
 let _reviewCounter = 100
 let _actionCounter = 500
@@ -386,23 +392,35 @@ function ProjectReviewWorkspace({
   getActionsForProject: (id: string) => Action[]
   getRisksForProject: (id: string) => RiskIssue[]
 }) {
+  const { checklistTemplate } = useData()
   const reviews = getReviewsForProject(project.id)
   const actions = getActionsForProject(project.id)
   const risks = getRisksForProject(project.id)
 
-  // Local checklist state
-  const [checklist, setChecklist] = useState<ChecklistItem[]>(() =>
-    checklistTemplate.flatMap((section) =>
-      section.items.map((item, idx) => ({
-        id: `ws-${project.id}-${section.section}-${idx}`,
-        section: section.section,
-        item,
-        response: null,
-        comment: "",
-        evidenceLinks: [],
-        actionRequired: false,
-      }))
-    )
+  // Persistence hook for auto-saving checklist state
+  const { initialState, save, isSaving, error, conflict, reload } = useChecklistPersistence({
+    sessionId,
+    projectId: project.id,
+    enabled: canChecklist && !isCompleted,
+  })
+
+  // Local checklist state for immediate UI response, hydrated from persistence
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([])
+
+  // Hydrate local state from persisted initial state when it becomes available
+  useEffect(() => {
+    if (initialState !== null) {
+      setChecklist(initialState)
+    }
+  }, [initialState])
+
+  // Handler that updates local state and persists
+  const handleChecklistUpdate = useCallback(
+    (updatedItems: ChecklistItem[]) => {
+      setChecklist(updatedItems)
+      save(updatedItems)
+    },
+    [save]
   )
 
   const [findings, setFindings] = useState("")
@@ -470,6 +488,18 @@ function ProjectReviewWorkspace({
           <h2 className="text-base font-semibold flex items-center gap-2">
             <Shield className="size-4 text-muted-foreground" />
             Oversight Checklist
+            {isSaving && (
+              <span className="inline-flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" />
+                Saving...
+              </span>
+            )}
+            {error && error.includes("Session is completed and locked") && (
+              <Badge variant="outline" className="text-[10px] gap-1 bg-muted/50 text-muted-foreground border-border">
+                <Lock className="size-3" />
+                Session completed
+              </Badge>
+            )}
           </h2>
           <Button variant="ghost" size="sm" asChild className="text-xs gap-1">
             <Link href={`/projects/${project.id}`}>
@@ -479,39 +509,70 @@ function ProjectReviewWorkspace({
           </Button>
         </div>
 
-        <ChecklistTab
-          checklist={checklist}
-          projectTitle={project.shortTitle}
-          readOnly={!canChecklist || checklistLocked}
-          onUpdate={setChecklist}
-        />
-
-        {/* Reopen for editing when completed/submitted */}
-        {(isCompleted || submitted) && canEditCompleted && !checklistReopened && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 text-xs w-fit"
-            onClick={() => setChecklistReopened(true)}
-          >
-            <Shield className="size-3.5" />
-            Reopen Checklist for Editing
-          </Button>
+        {/* Conflict resolution banner */}
+        {conflict && (
+          <Alert variant="destructive" className="border-rag-amber/30 bg-rag-amber/10 text-rag-amber">
+            <AlertTriangle className="size-4" />
+            <AlertTitle>Conflict detected</AlertTitle>
+            <AlertDescription className="flex items-center justify-between gap-2">
+              <span>Another user updated this checklist. Click Reload to see the latest version.</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-1.5 text-xs"
+                onClick={() => reload()}
+              >
+                <RefreshCw className="size-3.5" />
+                Reload
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
-        {checklistReopened && (
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="bg-rag-amber/10 text-rag-amber border-rag-amber/30 text-[10px]">
-              Checklist reopened for editing
-            </Badge>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs h-6"
-              onClick={() => setChecklistReopened(false)}
-            >
-              Lock
-            </Button>
+
+        {initialState === null ? (
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-3/4" />
           </div>
+        ) : (
+          <>
+            <ChecklistTab
+              checklist={checklist}
+              projectTitle={project.shortTitle}
+              readOnly={!canChecklist || checklistLocked}
+              onUpdate={handleChecklistUpdate}
+            />
+
+            {/* Reopen for editing when completed/submitted */}
+            {(isCompleted || submitted) && canEditCompleted && !checklistReopened && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs w-fit"
+                onClick={() => setChecklistReopened(true)}
+              >
+                <Shield className="size-3.5" />
+                Reopen Checklist for Editing
+              </Button>
+            )}
+            {checklistReopened && (
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="bg-rag-amber/10 text-rag-amber border-rag-amber/30 text-[10px]">
+                  Checklist reopened for editing
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-6"
+                  onClick={() => setChecklistReopened(false)}
+                >
+                  Lock
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

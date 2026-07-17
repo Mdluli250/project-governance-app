@@ -226,3 +226,21 @@ model ConfigActionCategory {
 
   @@map("config_action_categories")
 }
+
+model SessionChecklistItem {
+  id             String    @id @default(cuid())
+  sessionId      String    @map("session_id")
+  projectId      String    @map("project_id")
+  section        String
+  item           String
+  response       String?
+  comment        String?   @default("")
+  evidenceLinks  String[]  @default([]) @map("evidence_links")
+  actionRequired Boolean?  @default(false) @map("action_required")
+  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([sessionId, projectId, section, item], name: "uq_session_checklist_item")
+  @@index([sessionId, projectId], map: "idx_session_checklist_session_project")
+  @@map("session_checklist_items")
+}
