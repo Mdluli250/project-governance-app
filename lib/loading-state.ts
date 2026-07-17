@@ -72,6 +72,7 @@ export function createLoadingManager(): LoadingManager {
   }
 
   function notify() {
+    rebuildSnapshots()
     for (const listener of listeners) {
       listener()
     }
@@ -156,20 +157,27 @@ export function createLoadingManager(): LoadingManager {
     }
   }
 
-  function getLoadingStates(): Record<string, boolean> {
-    const result: Record<string, boolean> = {}
+  // Cached snapshots for useSyncExternalStore compatibility
+  let cachedLoadingStates: Record<string, boolean> = {}
+  let cachedErrors: Record<string, string | null> = {}
+
+  function rebuildSnapshots() {
+    const newLoading: Record<string, boolean> = {}
+    const newErrors: Record<string, string | null> = {}
     for (const [key, state] of states) {
-      result[key] = state.isLoading
+      newLoading[key] = state.isLoading
+      newErrors[key] = state.error
     }
-    return result
+    cachedLoadingStates = newLoading
+    cachedErrors = newErrors
+  }
+
+  function getLoadingStates(): Record<string, boolean> {
+    return cachedLoadingStates
   }
 
   function getErrors(): Record<string, string | null> {
-    const result: Record<string, string | null> = {}
-    for (const [key, state] of states) {
-      result[key] = state.error
-    }
-    return result
+    return cachedErrors
   }
 
   function registerFetch(key: string, fetchFn: () => Promise<void>): void {
