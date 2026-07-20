@@ -139,10 +139,10 @@ th { background: #f5f5f5; font-weight: 600; font-size: 10px; }
             <span><span className="red">{summary.no}</span> No</span>
             <span><span className="grey">{summary.unanswered}</span> Pending</span>
           </div>
-          {sections.map((section) => {
+          {sections.map((section, idx) => {
               const sLinks = section.items[0]?.evidenceLinks ?? []
               return (
-                <div key={section.section}>
+                <div key={`${section.section}-${idx}`}>
                   <h2>{section.section}</h2>
                   {(sLinks[0] || sLinks[1]) && (
                     <div className="links" style={{ marginBottom: 4 }}>
