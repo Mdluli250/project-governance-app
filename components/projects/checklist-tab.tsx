@@ -117,9 +117,9 @@ th { background: #f5f5f5; font-weight: 600; font-size: 10px; }
         </div>
       </div>
 
-      {sections.map((section) => (
+      {sections.map((section, idx) => (
         <ChecklistSection
-          key={section.section}
+          key={`${section.section}-${idx}`}
           section={section.section}
           items={section.items}
           canEdit={canEdit}
