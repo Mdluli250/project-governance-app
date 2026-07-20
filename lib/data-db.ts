@@ -123,7 +123,7 @@ export async function persistEntity(entity: string, action: string, data: Record
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      console.error(`Failed to persist ${entity}/${action}:`, body)
+      console.error(`Failed to persist ${entity}/${action} (${res.status}):`, body)
       return false
     }
     return true
