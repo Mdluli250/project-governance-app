@@ -87,6 +87,9 @@ vi.mock('@/lib/store', () => ({
     projects: mockProjects,
     addSession: mockAddSession,
     deleteSession: mockDeleteSession,
+    loadSessions: vi.fn(),
+    sessionsData: null,
+    loadingStates: {},
   }),
   useAuth: () => ({
     currentUser: mockCurrentUser,

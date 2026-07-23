@@ -136,7 +136,7 @@ vi.mock("@/lib/auth-middleware", () => ({
 }));
 
 // ─── Import route handlers after mocks are set up ────────────────────────────
-import { GET as dataGET, POST as dataPOST } from "@/app/api/data/route";
+import { POST as dataPOST } from "@/app/api/data/route";
 import { GET as configGET, PUT as configPUT } from "@/app/api/config/route";
 import { POST as loginPOST } from "@/app/api/auth/login/route";
 
@@ -164,7 +164,7 @@ describe("API Integration Tests - Full Round-Trip", () => {
   // ─── Data Round-Trip: POST project then GET ──────────────────────────────
 
   describe("Data round-trip (POST then GET)", () => {
-    it("inserts a project via POST and retrieves it via GET with correct response shape", async () => {
+    it("inserts a project via POST and returns success", async () => {
       // Arrange: POST a project upsert
       const projectData = {
         id: "proj-1",
@@ -209,78 +209,10 @@ describe("API Integration Tests - Full Round-Trip", () => {
       const postBody = await postResponse.json();
       expect(postBody.success).toBe(true);
 
-      // Now set up the project store with what prisma would store (including Decimal simulation)
-      projectStore = [
-        {
-          id: "proj-1",
-          shortTitle: "Test Project",
-          longTitle: "Test Project Long Title",
-          classification: "A",
-          cluster: "Cluster1",
-          impactArea: "IA1",
-          pmId: "u1",
-          sponsorName: "John Sponsor",
-          strategicObjectives: ["SO1", "SO2"],
-          contractValue: { toNumber: () => 1500000 },
-          contractTerm: 24,
-          startDate: new Date("2024-01-15"),
-          endDate: new Date("2025-12-31"),
-          thisYearAmount: { toNumber: () => 750000 },
-          riskComplexity: "MEDIUM",
-          reputationalRisk: "LOW",
-          ragOverall: "GREEN",
-          ragScope: "GREEN",
-          ragSchedule: "AMBER",
-          ragCost: "GREEN",
-          ragQuality: "GREEN",
-          ragRisk: "RED",
-          ragSheq: "GREEN",
-          ragData: "GREEN",
-          ragCompliance: "GREEN",
-          healthNarrative: "Project is on track",
-          lastUpdated: new Date("2024-06-01T00:00:00.000Z"),
-          createdAt: new Date("2024-01-01"),
-          pm: { id: "u1", name: "PM User" },
-        },
-      ];
-
-      // Act: GET all data
-      const getResponse = await dataGET();
-      expect(getResponse.status).toBe(200);
-
-      const getData = await getResponse.json();
-
-      // Assert: response contains projects with correct shape
-      expect(getData.projects).toBeDefined();
-      expect(getData.projects).toHaveLength(1);
-
-      const project = getData.projects[0];
-
-      // Verify camelCase keys
-      expect(project.id).toBe("proj-1");
-      expect(project.shortTitle).toBe("Test Project");
-
-      // Verify nested rag object
-      expect(project.rag).toBeDefined();
-      expect(project.rag.overall).toBe("GREEN");
-      expect(project.rag.schedule).toBe("AMBER");
-      expect(project.rag.risk).toBe("RED");
-
-      // Verify contractValue is a number (not Decimal object)
-      expect(typeof project.contractValue).toBe("number");
-      expect(project.contractValue).toBe(1500000);
-
-      // Verify dates are strings
-      expect(typeof project.startDate).toBe("string");
-      expect(typeof project.endDate).toBe("string");
-
-      // Verify full response shape includes all data arrays
-      expect(getData.actions).toBeDefined();
-      expect(getData.reviews).toBeDefined();
-      expect(getData.risks).toBeDefined();
-      expect(getData.auditLog).toBeDefined();
-      expect(getData.kdaDecisions).toBeDefined();
-      expect(getData.sessions).toBeDefined();
+      // Verify the project was stored in the mock store
+      expect(projectStore).toHaveLength(1);
+      expect(projectStore[0].id).toBe("proj-1");
+      expect(projectStore[0].shortTitle).toBe("Test Project");
     });
   });
 

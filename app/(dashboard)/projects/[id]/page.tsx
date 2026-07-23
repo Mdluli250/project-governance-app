@@ -15,6 +15,7 @@ import { ReviewsTab } from "@/components/projects/reviews-tab"
 import { ChecklistTab } from "@/components/projects/checklist-tab"
 import { RisksTab } from "@/components/projects/risks-tab"
 import { ActionsTab } from "@/components/projects/actions-tab"
+import { KDATab } from "@/components/projects/kda-tab"
 import { AuditTab } from "@/components/projects/audit-tab"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -28,6 +29,7 @@ import {
   Calendar,
   AlertCircle,
   History,
+  Milestone,
   Loader2,
 } from "lucide-react"
 
@@ -42,6 +44,7 @@ export default function ProjectDetailPage({
     getReviewsForProject,
     getActionsForProject,
     getRisksForProject,
+    getKDAForProject,
     getAuditForProject,
     updateProject,
     updateReview,
@@ -98,6 +101,7 @@ export default function ProjectDetailPage({
   const reviews = cachedDetail?.reviews ?? getReviewsForProject(id)
   const actions = cachedDetail?.actions ?? getActionsForProject(id)
   const risks = cachedDetail?.risks ?? getRisksForProject(id)
+  const kdaDecisions = cachedDetail?.kdaDecisions ?? getKDAForProject(id)
   const auditEntries = getAuditForProject(id)
 
   const lastReviewDate = reviews.length > 0 ? reviews[0].reviewDate : undefined
@@ -208,6 +212,13 @@ export default function ProjectDetailPage({
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="kda" className="gap-1.5 text-xs">
+            <Milestone className="size-3.5" />
+            <span className="hidden sm:inline">KDA</span>
+            {kdaDecisions.length > 0 && (
+              <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{kdaDecisions.length}</Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="audit" className="gap-1.5 text-xs">
             <History className="size-3.5" />
             <span className="hidden sm:inline">Audit</span>
@@ -238,6 +249,9 @@ export default function ProjectDetailPage({
         </TabsContent>
         <TabsContent value="actions" className="mt-4">
           <ActionsTab projectId={id} actions={actions} />
+        </TabsContent>
+        <TabsContent value="kda" className="mt-4">
+          <KDATab decisions={kdaDecisions} />
         </TabsContent>
         <TabsContent value="audit" className="mt-4">
           <AuditTab entries={auditEntries} projectId={id} />

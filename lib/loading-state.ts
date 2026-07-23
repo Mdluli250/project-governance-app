@@ -162,8 +162,8 @@ export function createLoadingManager(): LoadingManager {
   let cachedErrors: Record<string, string | null> = {}
 
   function rebuildSnapshots() {
-    const newLoading: Record<string, boolean> = {}
-    const newErrors: Record<string, string | null> = {}
+    const newLoading: Record<string, boolean> = Object.create(null)
+    const newErrors: Record<string, string | null> = Object.create(null)
     for (const [key, state] of states) {
       newLoading[key] = state.isLoading
       newErrors[key] = state.error

@@ -3,41 +3,7 @@
 // Prisma's strict typing conflicts with the dynamic Record<string, any> input pattern
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { mapProject, mapAction, mapReview, mapRisk, mapAudit, mapKda, mapSession } from "@/lib/prisma-mappers"
 import { verifyAuth } from "@/lib/auth-middleware"
-
-// ── GET: Load all data ─────────────────────────────────────
-export async function GET(req: NextRequest) {
-  const authError = verifyAuth(req)
-  if (authError) return authError
-
-  try {
-    const [projects, actions, reviews, risks, auditLog, kdaDecisions, sessions] =
-      await Promise.all([
-        prisma.project.findMany({ include: { pm: true }, orderBy: { shortTitle: 'asc' } }),
-        prisma.action.findMany({ orderBy: { createdAt: 'asc' } }),
-        prisma.pocReview.findMany({ include: { checklistResponses: true }, orderBy: { reviewDate: 'desc' } }),
-        prisma.risk.findMany({ orderBy: { createdAt: 'asc' } }),
-        prisma.auditLog.findMany({ orderBy: { timestamp: 'desc' } }),
-        prisma.kdaDecision.findMany({ orderBy: { date: 'desc' } }),
-        prisma.pocSession.findMany({ include: { sessionProjects: true }, orderBy: { date: 'desc' } }),
-      ])
-
-    return NextResponse.json({
-      projects: projects.map(mapProject),
-      actions: actions.map(mapAction),
-      reviews: reviews.map(mapReview),
-      risks: risks.map(mapRisk),
-      auditLog: auditLog.map(mapAudit),
-      kdaDecisions: kdaDecisions.map(mapKda),
-      sessions: sessions.map(mapSession),
-    })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error("Failed to load data:", message)
-    return NextResponse.json({ error: "Failed to load data", details: [message] }, { status: 500 })
-  }
-}
 
 // ── POST: Persist a mutation ───────────────────────────────
 const VALID_ENTITIES = ["project", "action", "review", "risk", "audit", "kda", "session"] as const
@@ -171,7 +137,16 @@ export async function POST(req: NextRequest) {
   try {
     switch (entity) {
       case "project": {
-        if (action === "upsert") {
+        if (action === "delete") {
+          const existing = await prisma.project.findUnique({ where: { id: data.id as string } })
+          if (!existing) {
+            return NextResponse.json({ error: "Project not found" }, { status: 404 })
+          }
+          await prisma.$transaction(async (tx) => {
+            await tx.sessionProject.deleteMany({ where: { projectId: data.id as string } })
+            await tx.project.delete({ where: { id: data.id as string } })
+          })
+        } else if (action === "upsert") {
           const rag = data.rag as Record<string, string> | undefined
           const projectData = {
             shortTitle: data.shortTitle as string,

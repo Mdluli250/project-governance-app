@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { verifyAuth } from "@/lib/auth-middleware"
+import { aggregateClassificationCounts } from "@/lib/dashboard-aggregation"
 import type { DashboardSummaryResponse } from "@/lib/api-types"
 
 export async function GET(req: NextRequest) {
@@ -48,13 +49,9 @@ export async function GET(req: NextRequest) {
     ])
 
     // Compute classification counts
-    const classificationCounts = { A: 0, B: 0, C: 0 }
-    for (const project of projects) {
-      const cls = project.classification as "A" | "B" | "C"
-      if (cls in classificationCounts) {
-        classificationCounts[cls]++
-      }
-    }
+    const classificationCounts = aggregateClassificationCounts(
+      projects as Array<{ classification: "A" | "B" | "C" }>
+    )
 
     // Compute RAG distribution from ragOverall
     const ragDistribution = { overall: { RED: 0, AMBER: 0, GREEN: 0 } }

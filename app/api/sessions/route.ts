@@ -3,6 +3,58 @@ import { prisma } from "@/lib/prisma"
 import { verifyAuth } from "@/lib/auth-middleware"
 import type { SessionsListResponse, SessionListItem } from "@/lib/api-types"
 
+/**
+ * Raw session record as returned from database query with sessionProjects relation.
+ */
+export interface RawSessionWithProjects {
+  id: string
+  date: Date
+  committeeType: string
+  status: string
+  attendees: string[]
+  sessionProjects: Array<{ projectId: string }>
+  // Fields that may exist on full project records but should NOT appear in session list items
+  rag?: unknown
+  contractValue?: unknown
+  actions?: unknown[]
+  reviews?: unknown[]
+  risks?: unknown[]
+  auditLog?: unknown[]
+  kdaDecisions?: unknown[]
+}
+
+/**
+ * Pure function that maps raw session records with their sessionProjects relation
+ * and a project title lookup map to SessionListItem[].
+ * Extracts only session fields and project titles; excludes full project detail fields.
+ */
+export function mapSessionsToListItems(
+  sessions: RawSessionWithProjects[],
+  projectTitleMap: Record<string, string>
+): SessionListItem[] {
+  return sessions.map((session) => {
+    const projectIds = session.sessionProjects.map((sp) => sp.projectId)
+    const projectTitles: Record<string, string> = {}
+    for (const pid of projectIds) {
+      if (projectTitleMap[pid]) {
+        projectTitles[pid] = projectTitleMap[pid]
+      }
+    }
+
+    return {
+      id: session.id,
+      date: session.date && !isNaN(session.date.getTime())
+        ? session.date.toISOString().split("T")[0]
+        : "",
+      committeeType: session.committeeType as SessionListItem["committeeType"],
+      projectIds,
+      projectTitles,
+      status: session.status as SessionListItem["status"],
+      attendees: session.attendees,
+    }
+  })
+}
+
 export async function GET(req: NextRequest) {
   const authError = verifyAuth(req)
   if (authError) return authError
@@ -38,26 +90,11 @@ export async function GET(req: NextRequest) {
       projectTitleMap[project.id] = project.shortTitle
     }
 
-    // Map to SessionListItem shape
-    const sessionItems: SessionListItem[] = sessions.map((session) => {
-      const projectIds = session.sessionProjects.map((sp) => sp.projectId)
-      const projectTitles: Record<string, string> = {}
-      for (const pid of projectIds) {
-        if (projectTitleMap[pid]) {
-          projectTitles[pid] = projectTitleMap[pid]
-        }
-      }
-
-      return {
-        id: session.id,
-        date: session.date.toISOString().split("T")[0],
-        committeeType: session.committeeType as SessionListItem["committeeType"],
-        projectIds,
-        projectTitles,
-        status: session.status as SessionListItem["status"],
-        attendees: session.attendees,
-      }
-    })
+    // Map to SessionListItem shape using the pure mapping function
+    const sessionItems = mapSessionsToListItems(
+      sessions as unknown as RawSessionWithProjects[],
+      projectTitleMap
+    )
 
     const response: SessionsListResponse = {
       sessions: sessionItems,

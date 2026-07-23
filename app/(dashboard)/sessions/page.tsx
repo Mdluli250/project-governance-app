@@ -88,10 +88,24 @@ export default function SessionsPage() {
         date: s.date,
         committeeType: s.committeeType,
         projectIds: s.projectIds,
+        projectTitles: s.projectTitles,
         status: s.status,
         attendees: s.attendees,
       }))
-    : sessions
+    : sessions.map((s) => ({
+        id: s.id,
+        date: s.date,
+        committeeType: s.committeeType,
+        projectIds: s.projectIds,
+        projectTitles: Object.fromEntries(
+          s.projectIds.map((pid) => {
+            const p = projects.find((proj) => proj.id === pid)
+            return [pid, p?.shortTitle ?? pid]
+          })
+        ),
+        status: s.status,
+        attendees: s.attendees,
+      }))
 
   const sorted = [...effectiveSessions].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
@@ -253,9 +267,7 @@ export default function SessionsPage() {
           {sorted.map((session) => {
             const config = statusConfig[session.status]
             const Icon = config.icon
-            const sessionProjects = projects.filter((p) =>
-              session.projectIds.includes(p.id)
-            )
+            const projectTitleEntries = Object.entries(session.projectTitles ?? {})
 
             return (
               <Card key={session.id} className="hover:border-primary/30 transition-colors">
@@ -298,14 +310,14 @@ export default function SessionsPage() {
                         year: "numeric",
                       })}
                     </span>
-                    <span>{sessionProjects.length} project(s) on agenda</span>
+                    <span>{session.projectIds.length} project(s) on agenda</span>
                     <span>{(session.attendees ?? []).length} attendee(s)</span>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {sessionProjects.map((p) => (
-                      <Badge key={p.id} variant="secondary" className="text-xs">
-                        {p.shortTitle}
+                    {projectTitleEntries.map(([pid, title]) => (
+                      <Badge key={pid} variant="secondary" className="text-xs">
+                        {title}
                       </Badge>
                     ))}
                   </div>

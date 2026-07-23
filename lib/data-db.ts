@@ -1,6 +1,5 @@
-// Client-side helpers to load & persist all data entities via /api/data
+// Client-side helpers for per-page data fetching and entity persistence via /api/data
 
-import type { Project, Action, POCReview, RiskIssue, AuditEntry, KDADecision, POCSession } from "./types"
 import type {
   DashboardSummaryResponse,
   PortfolioResponse,
@@ -10,30 +9,6 @@ import type {
   AuditPageResponse,
 } from "./api-types"
 import { getAuthHeaders } from "./auth-token"
-
-export interface AllData {
-  projects: Project[]
-  actions: Action[]
-  reviews: POCReview[]
-  risks: RiskIssue[]
-  auditLog: AuditEntry[]
-  kdaDecisions: KDADecision[]
-  sessions: POCSession[]
-}
-
-/**
- * @deprecated Use per-page fetch functions instead. Kept temporarily for backwards compatibility.
- */
-export async function loadAllData(): Promise<AllData> {
-  const res = await fetch("/api/data", {
-    headers: { ...getAuthHeaders() },
-  })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new Error(body.error || `Failed to load data (${res.status})`)
-  }
-  return res.json()
-}
 
 // --- Per-page fetch functions ---
 

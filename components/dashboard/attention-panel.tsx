@@ -8,7 +8,7 @@ import { useData } from "@/lib/store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { RAGBadge } from "@/components/rag-badge"
 import { ClassificationBadge } from "@/components/classification-badge"
-import { AlertTriangle, ArrowRight } from "lucide-react"
+import { AlertTriangle, ArrowRight, CalendarClock, Clock } from "lucide-react"
 
 interface AttentionPanelProps {
   projects: Project[]
@@ -41,16 +41,66 @@ export function AttentionPanel({ projects, actions, reviews }: AttentionPanelPro
       })
   }, [projects, actions, reviews])
 
+  // When full project data isn't available, use dashboardSummary as fallback
+  const showSummaryFallback = projects.length === 0 && dashboardSummary !== null
+
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
           <AlertTriangle className="size-4 text-rag-amber" />
-          Requires Attention ({attentionItems.length})
+          Requires Attention
+          {!showSummaryFallback && ` (${attentionItems.length})`}
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {attentionItems.length === 0 ? (
+        {showSummaryFallback ? (
+          <div className="flex flex-col gap-3">
+            {dashboardSummary.overdueActionCount > 0 && (
+              <div className="flex items-center gap-3 rounded-lg border p-3">
+                <Clock className="size-4 text-destructive shrink-0" />
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">
+                    {dashboardSummary.overdueActionCount} overdue action{dashboardSummary.overdueActionCount !== 1 ? "s" : ""}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    Actions past due date requiring follow-up
+                  </span>
+                </div>
+              </div>
+            )}
+            {dashboardSummary.upcomingReviews.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <CalendarClock className="size-3.5" />
+                  <span>Upcoming Reviews</span>
+                </div>
+                {dashboardSummary.upcomingReviews.slice(0, 5).map((review) => (
+                  <Link
+                    key={`${review.projectId}-${review.reviewDate}`}
+                    href={`/projects/${review.projectId}`}
+                    className="group flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="text-sm font-medium truncate">
+                        {review.projectShortTitle}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        Review due: {new Date(review.reviewDate).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <ArrowRight className="size-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 shrink-0" />
+                  </Link>
+                ))}
+              </div>
+            )}
+            {dashboardSummary.overdueActionCount === 0 && dashboardSummary.upcomingReviews.length === 0 && (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                No projects require immediate attention.
+              </p>
+            )}
+          </div>
+        ) : attentionItems.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
             No projects require immediate attention.
           </p>

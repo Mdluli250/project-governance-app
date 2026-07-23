@@ -3,6 +3,74 @@ import { prisma } from "@/lib/prisma"
 import { verifyAuth } from "@/lib/auth-middleware"
 import type { PortfolioResponse, PortfolioProject } from "@/lib/api-types"
 
+/**
+ * Raw project record with PM profile as returned from database query.
+ * This is the shape Prisma returns when including pm: { select: { name, email } }
+ */
+export interface RawProjectWithPm {
+  id: string
+  shortTitle: string
+  longTitle: string
+  classification: string
+  cluster: string
+  impactArea: string
+  pmId: string
+  pm: { name: string; email: string }
+  sponsorName: string
+  strategicObjectives: string[]
+  contractValue: { toNumber(): number } | number | null
+  ragOverall: string | null
+  ragScope: string | null
+  ragSchedule: string | null
+  ragCost: string | null
+  ragQuality: string | null
+  ragRisk: string | null
+  ragSheq: string | null
+  ragData: string | null
+  ragCompliance: string | null
+  lastUpdated: Date | null
+  // Related entities that may exist on a full project record but should NOT appear in projection
+  actions?: unknown[]
+  reviews?: unknown[]
+  risks?: unknown[]
+  auditLog?: unknown[]
+  kdaDecisions?: unknown[]
+}
+
+/**
+ * Pure function that projects a raw project record (with PM) to the PortfolioProject shape.
+ * Extracts only core fields and PM info; excludes related entities.
+ */
+export function projectToPortfolioProject(p: RawProjectWithPm): PortfolioProject {
+  return {
+    id: p.id,
+    shortTitle: p.shortTitle,
+    longTitle: p.longTitle,
+    classification: p.classification as PortfolioProject["classification"],
+    cluster: p.cluster,
+    impactArea: p.impactArea,
+    pmId: p.pmId,
+    pm: { name: p.pm.name, email: p.pm.email },
+    sponsorName: p.sponsorName,
+    strategicObjectives: p.strategicObjectives,
+    contractValue: typeof p.contractValue === 'number'
+      ? p.contractValue
+      : p.contractValue?.toNumber() ?? 0,
+    rag: {
+      overall: (p.ragOverall ?? "GREEN") as PortfolioProject["rag"]["overall"],
+      scope: (p.ragScope ?? "GREEN") as PortfolioProject["rag"]["scope"],
+      schedule: (p.ragSchedule ?? "GREEN") as PortfolioProject["rag"]["schedule"],
+      cost: (p.ragCost ?? "GREEN") as PortfolioProject["rag"]["cost"],
+      quality: (p.ragQuality ?? "GREEN") as PortfolioProject["rag"]["quality"],
+      risk: (p.ragRisk ?? "GREEN") as PortfolioProject["rag"]["risk"],
+      sheq: (p.ragSheq ?? "GREEN") as PortfolioProject["rag"]["sheq"],
+      data: (p.ragData ?? "GREEN") as PortfolioProject["rag"]["data"],
+      compliance: (p.ragCompliance ?? "GREEN") as PortfolioProject["rag"]["compliance"],
+    },
+    lastUpdated: p.lastUpdated && !isNaN(p.lastUpdated.getTime()) ? p.lastUpdated.toISOString() : "",
+  }
+}
+
 // ── GET: Load portfolio projects with summaries ─────────────────────────────
 export async function GET(req: NextRequest) {
   const authError = verifyAuth(req)
@@ -68,31 +136,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Map projects to PortfolioProject shape (core fields only)
-    const portfolioProjects: PortfolioProject[] = projects.map((p) => ({
-      id: p.id,
-      shortTitle: p.shortTitle,
-      longTitle: p.longTitle,
-      classification: p.classification as PortfolioProject["classification"],
-      cluster: p.cluster,
-      impactArea: p.impactArea,
-      pmId: p.pmId,
-      pm: { name: p.pm.name, email: p.pm.email },
-      sponsorName: p.sponsorName,
-      strategicObjectives: p.strategicObjectives,
-      contractValue: p.contractValue?.toNumber() ?? 0,
-      rag: {
-        overall: (p.ragOverall ?? "GREEN") as PortfolioProject["rag"]["overall"],
-        scope: (p.ragScope ?? "GREEN") as PortfolioProject["rag"]["scope"],
-        schedule: (p.ragSchedule ?? "GREEN") as PortfolioProject["rag"]["schedule"],
-        cost: (p.ragCost ?? "GREEN") as PortfolioProject["rag"]["cost"],
-        quality: (p.ragQuality ?? "GREEN") as PortfolioProject["rag"]["quality"],
-        risk: (p.ragRisk ?? "GREEN") as PortfolioProject["rag"]["risk"],
-        sheq: (p.ragSheq ?? "GREEN") as PortfolioProject["rag"]["sheq"],
-        data: (p.ragData ?? "GREEN") as PortfolioProject["rag"]["data"],
-        compliance: (p.ragCompliance ?? "GREEN") as PortfolioProject["rag"]["compliance"],
-      },
-      lastUpdated: p.lastUpdated ? p.lastUpdated.toISOString() : "",
-    }))
+    const portfolioProjects: PortfolioProject[] = projects.map((p) =>
+      projectToPortfolioProject(p as unknown as RawProjectWithPm)
+    )
 
     const response: PortfolioResponse = {
       projects: portfolioProjects,

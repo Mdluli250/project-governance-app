@@ -1,10 +1,10 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
 import type { Project, Action, POCReview } from "@/lib/types"
 import type { PortfolioProject } from "@/lib/api-types"
-import { getNextPOCReviewDue, getActionCounts } from "@/lib/rules"
+import { getNextPOCReviewDue, getActionCounts, canPerformAction } from "@/lib/rules"
 import { useAuth } from "@/lib/store"
 import {
   Table,
@@ -14,11 +14,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { RAGBadge } from "@/components/rag-badge"
 import { ClassificationBadge } from "@/components/classification-badge"
 import { Badge } from "@/components/ui/badge"
-import { ArrowUpDown } from "lucide-react"
+import { ArrowUpDown, MoreHorizontal, Pencil, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { EditProjectDialog } from "@/components/portfolio/edit-project-dialog"
+import { DeleteProjectDialog } from "@/components/portfolio/delete-project-dialog"
 
 type SortKey = "shortTitle" | "classification" | "cluster" | "pm" | "overall" | "nextReview" | "openActions" | "overdueActions"
 type SortDir = "asc" | "desc"
@@ -44,7 +52,11 @@ export function PortfolioTable({
   sortDir,
   onSort,
 }: PortfolioTableProps) {
-  const { users: allUsers } = useAuth()
+  const { users: allUsers, currentUser } = useAuth()
+  const canEdit = canPerformAction(currentUser, "EDIT_PROJECT")
+
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null)
 
   const enriched = useMemo(() => {
     return projects.map((p) => {
@@ -144,6 +156,7 @@ export function PortfolioTable({
   )
 
   return (
+    <>
     <div className="rounded-lg border">
       <Table>
         <TableHeader>
@@ -156,12 +169,13 @@ export function PortfolioTable({
             <TableHead className="hidden md:table-cell"><SortHeader label="Next POC Due" colKey="nextReview" /></TableHead>
             <TableHead className="text-right"><SortHeader label="Open" colKey="openActions" /></TableHead>
             <TableHead className="text-right"><SortHeader label="Overdue" colKey="overdueActions" /></TableHead>
+            {canEdit && <TableHead className="w-[50px]"><span className="sr-only">Actions</span></TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
           {sorted.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+              <TableCell colSpan={canEdit ? 9 : 8} className="h-24 text-center text-muted-foreground">
                 No projects match the current filters.
               </TableCell>
             </TableRow>
@@ -214,11 +228,57 @@ export function PortfolioTable({
                     </Badge>
                   )}
                 </TableCell>
+                {canEdit && (
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="size-8 p-0">
+                          <span className="sr-only">Open menu</span>
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setEditingProject(p as Project)}>
+                          <Pencil className="size-4" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => setDeletingProject(p as Project)}
+                        >
+                          <Trash2 className="size-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                )}
               </TableRow>
             ))
           )}
         </TableBody>
       </Table>
     </div>
+
+    {editingProject && (
+      <EditProjectDialog
+        project={editingProject}
+        open={!!editingProject}
+        onOpenChange={(open) => {
+          if (!open) setEditingProject(null)
+        }}
+      />
+    )}
+
+    {deletingProject && (
+      <DeleteProjectDialog
+        project={deletingProject}
+        open={!!deletingProject}
+        onOpenChange={(open) => {
+          if (!open) setDeletingProject(null)
+        }}
+      />
+    )}
+    </>
   )
 }
