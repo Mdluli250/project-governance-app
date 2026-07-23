@@ -36,7 +36,6 @@ import {
   saveActionCategories,
 } from "./config-db"
 import {
-  loadAllData,
   persistEntity,
   fetchDashboardSummary,
   fetchPortfolio,
@@ -400,6 +399,7 @@ interface DataContextType {
   addSession: (session: POCSession) => void
   updateSession: (id: string, updates: Partial<POCSession>) => void
   deleteSession: (id: string) => Promise<boolean>
+  deleteProject: (id: string) => Promise<boolean>
   addAuditEntry: (entry: Omit<AuditEntry, "id" | "timestamp">) => void
   getProjectById: (id: string) => Project | undefined
   getReviewsForProject: (projectId: string) => POCReview[]
@@ -546,6 +546,56 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const opId = loadingManager.startLoading(key)
     try {
       const data = await fetchSessionDetail(id)
+      // Merge the fetched session into the sessions state so the detail page can find it
+      const sessionEntry: POCSession = {
+        id: data.session.id,
+        date: data.session.date,
+        committeeType: data.session.committeeType,
+        projectIds: data.session.projectIds,
+        status: data.session.status,
+        attendees: data.session.attendees,
+      }
+      setSessions((prev) => {
+        const exists = prev.some((s) => s.id === id)
+        return exists
+          ? prev.map((s) => (s.id === id ? { ...s, ...sessionEntry } : s))
+          : [...prev, sessionEntry]
+      })
+
+      // Also load full project details for each project in the session
+      // so the workspace page can access them via the projects array
+      const projectFetches = data.session.projectIds.map(async (pid) => {
+        try {
+          const detail = await fetchProjectDetail(pid)
+          setProjects((prev) => {
+            const exists = prev.some((p) => p.id === pid)
+            return exists
+              ? prev.map((p) => (p.id === pid ? detail.project : p))
+              : [...prev, detail.project]
+          })
+          // Also merge related entities into state
+          setReviews((prev) => {
+            const filtered = prev.filter((r) => r.projectId !== pid)
+            return [...filtered, ...detail.reviews]
+          })
+          setActions((prev) => {
+            const filtered = prev.filter((a) => a.projectId !== pid)
+            return [...filtered, ...detail.actions]
+          })
+          setRisks((prev) => {
+            const filtered = prev.filter((r) => r.projectId !== pid)
+            return [...filtered, ...detail.risks]
+          })
+          setKDADecisions((prev) => {
+            const filtered = prev.filter((k) => k.projectId !== pid)
+            return [...filtered, ...detail.kdaDecisions]
+          })
+        } catch {
+          // Individual project load failure is non-fatal
+        }
+      })
+      await Promise.all(projectFetches)
+
       loadingManager.endLoading(key, opId)
       return data
     } catch (err) {
@@ -614,52 +664,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     loadingManager.registerFetch("sessions", loadSessions)
   }, [loadingManager, loadDashboard, loadPortfolio, loadSessions])
 
-  // ── Load all data from Supabase when authenticated ─
+  // ── Mark data as loaded — per-page endpoints now handle data fetching ─
   useEffect(() => {
     if (dataLoadDone.current) return
     if (!isAuthenticated) return
     dataLoadDone.current = true
-
-    let retryCount = 0
-    const maxRetries = 3
-
-    async function init() {
-      try {
-        const allData = await loadAllData()
-        // Always use whatever Supabase returns -- no auto-seeding
-        setProjects(allData.projects as Project[])
-        setActions(allData.actions as Action[])
-        setReviews(allData.reviews as POCReview[])
-        setRisks(allData.risks as RiskIssue[])
-        setAuditLog(allData.auditLog as AuditEntry[])
-        if (allData.auditLog.length > 0) {
-          const maxId = Math.max(0, ...allData.auditLog.map((a) => {
-            const n = parseInt(String(a.id).replace(/\D/g, ""), 10)
-            return isNaN(n) ? 0 : n
-          }))
-          _auditId = maxId + 1
-        }
-        setKDADecisions(allData.kdaDecisions as KDADecision[])
-        setSessions(allData.sessions as POCSession[])
-        setDataLoaded(true)
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err)
-        console.error("Failed to load data:", errMsg)
-        // Don't retry on auth errors — the per-page endpoints will handle loading
-        if (errMsg.includes("Unauthorized") || errMsg.includes("401")) {
-          setDataLoaded(true)
-          return
-        }
-        retryCount++
-        if (retryCount <= maxRetries) {
-          console.log(`Retrying data load (attempt ${retryCount}/${maxRetries})...`)
-          setTimeout(init, retryCount * 2000)
-        } else {
-          setDataLoaded(true) // Allow UI to render even if data load fails after retries
-        }
-      }
-    }
-    init()
+    setDataLoaded(true)
   }, [isAuthenticated])
 
   // Config state -- always starts empty, loaded from Supabase only.
@@ -914,6 +924,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [invalidateDashboard, invalidatePortfolio])
 
+  const deleteProject = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ entity: "project", action: "delete", data: { id } }),
+      })
+      if (!res.ok) {
+        return false
+      }
+      setProjects((prev) => prev.filter((p) => p.id !== id))
+      setPortfolioProjects((prev) => prev ? prev.filter((p) => p.id !== id) : prev)
+      invalidateDashboard()
+      invalidatePortfolio()
+      return true
+    } catch {
+      return false
+    }
+  }, [invalidateDashboard, invalidatePortfolio])
+
   const getProjectById = useCallback(
     (id: string) => projects.find((p) => p.id === id),
     [projects]
@@ -997,6 +1027,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         addSession,
         updateSession,
         deleteSession,
+        deleteProject,
         addAuditEntry,
         getProjectById,
         getReviewsForProject,

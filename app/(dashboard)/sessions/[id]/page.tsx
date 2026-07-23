@@ -100,43 +100,34 @@ export default function SessionWorkspacePage({
   } = useData()
   const { currentUser, users: allUsers } = useAuth()
 
+  // Track whether we've attempted to load the session detail
+  const [loadAttempted, setLoadAttempted] = useState(false)
+
   // Pre-load session detail via the per-page endpoint on mount
   useEffect(() => {
-    loadSessionDetail(id).catch(() => {
-      // Error is exposed via loadingStates/errors in the store
-    })
+    loadSessionDetail(id)
+      .catch(() => {
+        // Error is exposed via loadingStates/errors in the store
+      })
+      .finally(() => {
+        setLoadAttempted(true)
+      })
   }, [id, loadSessionDetail])
 
   const isLoadingDetail = loadingStates[`session-detail-${id}`] ?? false
 
   const session = sessions.find((s) => s.id === id)
-  if (!session) {
-    if (isLoadingDetail) {
-      return (
-        <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-3">
-            <Skeleton className="h-7 w-64" />
-            <Skeleton className="h-4 w-48" />
-          </div>
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-8 w-24" />
-            <Skeleton className="h-8 w-24" />
-            <Skeleton className="h-8 w-24" />
-          </div>
-          <Skeleton className="h-[300px] w-full" />
-        </div>
-      )
-    }
-    return notFound()
-  }
 
-  const sessionProjects = projects.filter((p) => session.projectIds.includes(p.id))
+  const sessionProjects = session
+    ? projects.filter((p) => session.projectIds.includes(p.id))
+    : []
   const [currentIndex, setCurrentIndex] = useState(0)
   const currentProject = sessionProjects[currentIndex]
 
   const printRef = useRef<HTMLDivElement>(null)
 
   const handlePrint = useCallback(() => {
+    if (!session) return
     const printContent = printRef.current
     if (!printContent) return
 
@@ -164,10 +155,10 @@ export default function SessionWorkspacePage({
 
   const canDecide = canPerformAction(currentUser, "RECORD_DECISION")
   const canChecklist = canPerformAction(currentUser, "COMPLETE_CHECKLIST")
-  const isCompleted = session.status === "COMPLETED"
+  const isCompleted = session?.status === "COMPLETED"
   const canEdit = canDecide && !isCompleted
 
-  const sessionAttendees = session.attendees ?? []
+  const sessionAttendees = session?.attendees ?? []
 
   const addAttendee = useCallback(
     (name: string) => {
@@ -185,7 +176,8 @@ export default function SessionWorkspacePage({
     [id, sessionAttendees, updateSession]
   )
 
-  const handleStartSession = () => {
+  const handleStartSession = useCallback(() => {
+    if (!session) return
     updateSession(id, { status: "IN_PROGRESS" })
     addAuditEntry({
       projectId: currentProject?.id ?? "",
@@ -193,6 +185,26 @@ export default function SessionWorkspacePage({
       type: "POC_DECISION",
       description: `POC Session started: ${COMMITTEE_TYPE_LABELS[session.committeeType]} session.`,
     })
+  }, [id, session, currentProject, currentUser, updateSession, addAuditEntry])
+
+  if (!session) {
+    if (isLoadingDetail || !loadAttempted) {
+      return (
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-7 w-64" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-24" />
+            <Skeleton className="h-8 w-24" />
+            <Skeleton className="h-8 w-24" />
+          </div>
+          <Skeleton className="h-[300px] w-full" />
+        </div>
+      )
+    }
+    return notFound()
   }
 
   return (
