@@ -46,7 +46,7 @@ interface NewProjectDialogProps {
 
 export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) {
   const { currentUser, users } = useAuth()
-  const { clusters, impactAreas, strategicObjectives, addProject, addAuditEntry } = useData()
+  const { clusters, impactAreas, strategicObjectives, addProject, addAuditEntry, configLoaded } = useData()
   const { toast } = useToast()
 
   const [form, setForm] = useState({
@@ -153,6 +153,11 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
           <DialogTitle>New Project</DialogTitle>
         </DialogHeader>
 
+        {!configLoaded ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            Loading configuration...
+          </div>
+        ) : (
         <div className="grid gap-4 py-2">
           {/* Title */}
           <div className="grid gap-1.5">
@@ -287,12 +292,13 @@ export function NewProjectDialog({ open, onOpenChange }: NewProjectDialogProps) 
             <Textarea id="np-narrative" placeholder="Initial project health summary..." value={form.healthNarrative} onChange={(e) => setForm((p) => ({ ...p, healthNarrative: e.target.value }))} className="min-h-[60px] text-sm" />
           </div>
         </div>
+        )}
 
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="outline">Cancel</Button>
           </DialogClose>
-          <Button onClick={handleSubmit}>Create Project</Button>
+          <Button onClick={handleSubmit} disabled={!configLoaded}>Create Project</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

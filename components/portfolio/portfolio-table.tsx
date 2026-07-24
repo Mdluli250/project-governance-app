@@ -57,6 +57,30 @@ export function PortfolioTable({
 
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [deletingProject, setDeletingProject] = useState<Project | null>(null)
+  const [loadingEditProject, setLoadingEditProject] = useState(false)
+
+  // Fetch full project detail before opening edit dialog to avoid data loss
+  async function handleEditClick(p: Project | PortfolioProject) {
+    // Check if this is a full Project (has fields like riskComplexity) or a slim PortfolioProject
+    if ("riskComplexity" in p && "startDate" in p && "contractTerm" in p) {
+      // Already a full Project object
+      setEditingProject(p as Project)
+      return
+    }
+
+    // Need to fetch the full project detail
+    setLoadingEditProject(true)
+    try {
+      const { fetchProjectDetail } = await import("@/lib/data-db")
+      const detail = await fetchProjectDetail(p.id)
+      setEditingProject(detail.project)
+    } catch {
+      // If fetch fails, open with what we have — fields will be missing but the dialog will still open
+      setEditingProject(p as unknown as Project)
+    } finally {
+      setLoadingEditProject(false)
+    }
+  }
 
   const enriched = useMemo(() => {
     return projects.map((p) => {
@@ -238,7 +262,7 @@ export function PortfolioTable({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditingProject(p as Project)}>
+                        <DropdownMenuItem onClick={() => handleEditClick(p)}>
                           <Pencil className="size-4" />
                           Edit
                         </DropdownMenuItem>

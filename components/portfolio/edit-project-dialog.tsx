@@ -56,7 +56,7 @@ function projectToFormState(project: Project): EditProjectFormState {
 
 export function EditProjectDialog({ project, open, onOpenChange }: EditProjectDialogProps) {
   const { currentUser, users } = useAuth()
-  const { clusters, impactAreas, strategicObjectives, updateProject, addAuditEntry } = useData()
+  const { clusters, impactAreas, strategicObjectives, updateProject, addAuditEntry, configLoaded } = useData()
   const { toast } = useToast()
 
   const [form, setForm] = useState<EditProjectFormState>(projectToFormState(project))
@@ -371,7 +371,7 @@ export function EditProjectDialog({ project, open, onOpenChange }: EditProjectDi
 
         <DialogFooter>
           <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
+          <Button onClick={handleSubmit} disabled={submitting || !configLoaded}>
             {submitting ? "Saving..." : "Save Changes"}
           </Button>
         </DialogFooter>
