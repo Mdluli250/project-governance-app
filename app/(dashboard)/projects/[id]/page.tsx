@@ -67,10 +67,14 @@ export default function ProjectDetailPage({
   const cachedDetail = projectDetailCache.get(id)
 
   const project = cachedDetail?.project ?? getProjectById(id)
-  if (!project && !isLoading) return notFound()
+
+  // On initial load, data hasn't been fetched yet — show loading skeleton.
+  // Only show 404 after a fetch has completed and still no project found.
+  const hasFetchAttempted = cachedDetail !== undefined || loadingStates[`project-detail-${id}`] !== undefined
+  if (!project && !isLoading && hasFetchAttempted) return notFound()
 
   // Show skeleton while loading if no data is available yet
-  if (!project && isLoading) {
+  if (!project && (isLoading || !hasFetchAttempted)) {
     return (
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-3">
