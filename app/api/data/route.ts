@@ -148,20 +148,53 @@ export async function POST(req: NextRequest) {
           })
         } else if (action === "upsert") {
           const rag = data.rag as Record<string, string> | undefined
+          
+          // Build update data from fields that are actually present
+          const updateData: Record<string, unknown> = {}
+          if (data.shortTitle !== undefined) updateData.shortTitle = data.shortTitle as string
+          if (data.longTitle !== undefined) updateData.longTitle = data.longTitle as string
+          if (data.classification !== undefined) updateData.classification = data.classification
+          if (data.cluster !== undefined) updateData.cluster = data.cluster as string
+          if (data.impactArea !== undefined) updateData.impactArea = data.impactArea as string
+          if (data.pmId !== undefined) updateData.pmId = data.pmId as string
+          if (data.sponsorName !== undefined) updateData.sponsorName = data.sponsorName as string
+          if (data.strategicObjectives !== undefined) updateData.strategicObjectives = (data.strategicObjectives as string[]) ?? []
+          if (data.contractValue !== undefined) updateData.contractValue = data.contractValue as number
+          if (data.contractTerm !== undefined) updateData.contractTerm = data.contractTerm as number
+          if (data.startDate !== undefined) updateData.startDate = data.startDate ? new Date(data.startDate as string) : null
+          if (data.endDate !== undefined) updateData.endDate = data.endDate ? new Date(data.endDate as string) : null
+          if (data.thisYearAmount !== undefined) updateData.thisYearAmount = data.thisYearAmount as number
+          if (data.riskComplexity !== undefined) updateData.riskComplexity = (data.riskComplexity) || null
+          if (data.reputationalRisk !== undefined) updateData.reputationalRisk = (data.reputationalRisk) || null
+          if (data.healthNarrative !== undefined) updateData.healthNarrative = (data.healthNarrative as string) ?? ""
+          if (data.lastUpdated !== undefined) updateData.lastUpdated = data.lastUpdated ? new Date(data.lastUpdated as string) : null
+          if (rag) {
+            updateData.ragOverall = rag.overall
+            updateData.ragScope = rag.scope
+            updateData.ragSchedule = rag.schedule
+            updateData.ragCost = rag.cost
+            updateData.ragQuality = rag.quality
+            updateData.ragRisk = rag.risk
+            updateData.ragSheq = rag.sheq
+            updateData.ragData = rag.data
+            updateData.ragCompliance = rag.compliance
+          }
+
+          // For create (new project), build the full required payload
           const projectData = {
-            shortTitle: data.shortTitle as string,
-            longTitle: data.longTitle as string,
-            classification: data.classification,
-            cluster: data.cluster as string,
-            impactArea: data.impactArea as string,
-            pmId: data.pmId as string,
-            sponsorName: data.sponsorName as string,
+            shortTitle: data.shortTitle as string ?? "",
+            longTitle: data.longTitle as string ?? "",
+            classification: data.classification ?? "C",
+            cluster: data.cluster as string ?? "",
+            impactArea: data.impactArea as string ?? "",
+            pmId: data.pmId as string ?? "",
+            sponsorName: data.sponsorName as string ?? "",
             strategicObjectives: (data.strategicObjectives as string[]) ?? [],
-            contractValue: data.contractValue as number,
-            contractTerm: data.contractTerm as number,
+            contractValue: data.contractValue as number ?? 0,
+            contractTerm: data.contractTerm as number ?? 0,
             startDate: data.startDate ? new Date(data.startDate as string) : null,
             endDate: data.endDate ? new Date(data.endDate as string) : null,
-            thisYearAmount: data.thisYearAmount as number,
+            thisYearAmount: data.thisYearAmount as number ?? 0,
             riskComplexity: (data.riskComplexity) || null,
             reputationalRisk: (data.reputationalRisk) || null,
             healthNarrative: (data.healthNarrative as string) ?? "",
@@ -182,7 +215,7 @@ export async function POST(req: NextRequest) {
           await prisma.project.upsert({
             where: { id: data.id as string },
             create: { id: data.id as string, ...projectData },
-            update: projectData,
+            update: updateData,
           })
         }
         break
