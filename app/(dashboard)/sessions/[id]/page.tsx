@@ -178,25 +178,25 @@ export default function SessionWorkspacePage({
 
   const handleStartSession = useCallback(() => {
     if (!session) return
-    updateSession(id, { status: "IN_PROGRESS" })
+    updateSession(id, { status: "IN_PROGRESS" as SessionStatus })
     addAuditEntry({
-      projectId: currentProject?.id ?? "",
+      projectId: sessionProjects[0]?.id ?? session.projectIds[0] ?? "",
       actor: currentUser.name,
       type: "POC_DECISION",
       description: `POC Session started: ${COMMITTEE_TYPE_LABELS[session.committeeType]} session.`,
     })
-  }, [id, session, currentProject, currentUser, updateSession, addAuditEntry])
+  }, [id, session, sessionProjects, currentUser, updateSession, addAuditEntry])
 
   const handleCompleteSession = useCallback(() => {
     if (!session) return
-    updateSession(id, { status: "COMPLETED" })
+    updateSession(id, { status: "COMPLETED" as SessionStatus })
     addAuditEntry({
-      projectId: currentProject?.id ?? "",
+      projectId: sessionProjects[0]?.id ?? session.projectIds[0] ?? "",
       actor: currentUser.name,
       type: "POC_DECISION",
       description: `POC Session completed: ${COMMITTEE_TYPE_LABELS[session.committeeType]} session.`,
     })
-  }, [id, session, currentProject, currentUser, updateSession, addAuditEntry])
+  }, [id, session, sessionProjects, currentUser, updateSession, addAuditEntry])
 
   if (!session) {
     if (isLoadingDetail || !loadAttempted) {
