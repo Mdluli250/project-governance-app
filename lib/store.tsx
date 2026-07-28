@@ -802,7 +802,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     (entry: Omit<AuditEntry, "id" | "timestamp">) => {
       const newEntry: AuditEntry = {
         ...entry,
-        id: `au${++_auditId}`,
+        id: `au-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         timestamp: new Date().toISOString(),
       }
       setAuditLog((prev) => [newEntry, ...prev])
