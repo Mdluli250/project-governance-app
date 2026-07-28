@@ -1,7 +1,6 @@
 "use client"
 
-import { use, useEffect } from "react"
-import { notFound } from "next/navigation"
+import { use, useEffect, useState } from "react"
 import { useData, useAuth } from "@/lib/store"
 import { canPerformAction, getNextPOCReviewDue, getActionCounts } from "@/lib/rules"
 import type { ChecklistItem } from "@/lib/types"
@@ -30,7 +29,6 @@ import {
   AlertCircle,
   History,
   Milestone,
-  Loader2,
 } from "lucide-react"
 
 export default function ProjectDetailPage({
@@ -53,6 +51,7 @@ export default function ProjectDetailPage({
     loadProjectDetail,
     projectDetailCache,
     loadingStates,
+    errors,
   } = useData()
   const { currentUser } = useAuth()
 
@@ -68,13 +67,23 @@ export default function ProjectDetailPage({
 
   const project = cachedDetail?.project ?? getProjectById(id)
 
-  // On initial load, data hasn't been fetched yet — show loading skeleton.
-  // Only show 404 after a fetch has completed and still no project found.
-  const hasFetchAttempted = cachedDetail !== undefined || loadingStates[`project-detail-${id}`] !== undefined
-  if (!project && !isLoading && hasFetchAttempted) return notFound()
+  // Show skeleton while data is loading or hasn't been fetched yet
+  if (!project) {
+    // Check if loading has finished (error state means fetch completed but failed)
+    const fetchError = errors[`project-detail-${id}`]
+    const fetchDone = !isLoading && (cachedDetail !== undefined || fetchError !== undefined && fetchError !== null)
 
-  // Show skeleton while loading if no data is available yet
-  if (!project && (isLoading || !hasFetchAttempted)) {
+    if (fetchDone) {
+      // Fetch completed but no project found — show not found UI
+      return (
+        <div className="flex flex-col items-center justify-center gap-4 py-20">
+          <p className="text-4xl font-bold">404</p>
+          <p className="text-muted-foreground">This project could not be found.</p>
+        </div>
+      )
+    }
+
+    // Still loading or fetch hasn't started
     return (
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-3">
@@ -98,9 +107,6 @@ export default function ProjectDetailPage({
       </div>
     )
   }
-
-  // At this point, project is guaranteed to be defined
-  if (!project) return notFound()
 
   const reviews = cachedDetail?.reviews ?? getReviewsForProject(id)
   const actions = cachedDetail?.actions ?? getActionsForProject(id)
