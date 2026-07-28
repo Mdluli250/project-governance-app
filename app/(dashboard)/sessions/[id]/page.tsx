@@ -179,23 +179,29 @@ export default function SessionWorkspacePage({
   const handleStartSession = useCallback(() => {
     if (!session) return
     updateSession(id, { status: "IN_PROGRESS" as SessionStatus })
-    addAuditEntry({
-      projectId: sessionProjects[0]?.id ?? session.projectIds[0] ?? "",
-      actor: currentUser.name,
-      type: "POC_DECISION",
-      description: `POC Session started: ${COMMITTEE_TYPE_LABELS[session.committeeType]} session.`,
-    })
+    const auditProjectId = sessionProjects[0]?.id ?? session.projectIds[0]
+    if (auditProjectId) {
+      addAuditEntry({
+        projectId: auditProjectId,
+        actor: currentUser.name,
+        type: "POC_DECISION",
+        description: `POC Session started: ${COMMITTEE_TYPE_LABELS[session.committeeType]} session.`,
+      })
+    }
   }, [id, session, sessionProjects, currentUser, updateSession, addAuditEntry])
 
   const handleCompleteSession = useCallback(() => {
     if (!session) return
     updateSession(id, { status: "COMPLETED" as SessionStatus })
-    addAuditEntry({
-      projectId: sessionProjects[0]?.id ?? session.projectIds[0] ?? "",
-      actor: currentUser.name,
-      type: "POC_DECISION",
-      description: `POC Session completed: ${COMMITTEE_TYPE_LABELS[session.committeeType]} session.`,
-    })
+    const auditProjectId = sessionProjects[0]?.id ?? session.projectIds[0]
+    if (auditProjectId) {
+      addAuditEntry({
+        projectId: auditProjectId,
+        actor: currentUser.name,
+        type: "POC_DECISION",
+        description: `POC Session completed: ${COMMITTEE_TYPE_LABELS[session.committeeType]} session.`,
+      })
+    }
   }, [id, session, sessionProjects, currentUser, updateSession, addAuditEntry])
 
   if (!session) {
