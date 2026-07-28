@@ -187,6 +187,17 @@ export default function SessionWorkspacePage({
     })
   }, [id, session, currentProject, currentUser, updateSession, addAuditEntry])
 
+  const handleCompleteSession = useCallback(() => {
+    if (!session) return
+    updateSession(id, { status: "COMPLETED" })
+    addAuditEntry({
+      projectId: currentProject?.id ?? "",
+      actor: currentUser.name,
+      type: "POC_DECISION",
+      description: `POC Session completed: ${COMMITTEE_TYPE_LABELS[session.committeeType]} session.`,
+    })
+  }, [id, session, currentProject, currentUser, updateSession, addAuditEntry])
+
   if (!session) {
     if (isLoadingDetail || !loadAttempted) {
       return (
@@ -235,6 +246,12 @@ export default function SessionWorkspacePage({
               <Button size="sm" className="gap-1.5" onClick={handleStartSession}>
                 <Play className="size-3.5" />
                 Start Session
+              </Button>
+            )}
+            {session.status === "IN_PROGRESS" && canDecide && (
+              <Button size="sm" className="gap-1.5" variant="default" onClick={handleCompleteSession}>
+                <CheckCircle2 className="size-3.5" />
+                Complete Session
               </Button>
             )}
             <SessionStatusBadge status={session.status} />
